@@ -10,6 +10,7 @@ import {
   Timer,
   ArrowRightLeft,
   CheckCheck,
+  LogOut,
 } from "lucide-react";
 
 interface ChatSidebarProps {
@@ -23,6 +24,7 @@ interface ChatSidebarProps {
   onOpenSecurityCenter: () => void;
   onSwitchUser: () => void;
   onLockApp: () => void;
+  onLogout?: () => void;
 }
 
 export function ChatSidebar({
@@ -36,6 +38,7 @@ export function ChatSidebar({
   onOpenSecurityCenter,
   onSwitchUser,
   onLockApp,
+  onLogout,
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTab, setFilterTab] = useState<"all" | "unread" | "e2ee" | "disappearing">("all");
@@ -98,6 +101,17 @@ export function ChatSidebar({
           >
             <Lock className="h-4 w-4" />
           </button>
+
+          {/* Log Out Button */}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              title="Log Out"
+              className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
 

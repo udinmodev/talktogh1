@@ -47,31 +47,65 @@ alter table public.public_keys enable row level security;
 
 -- 5. Policies allowing anonymous/authenticated messaging clients to read & write encrypted envelopes
 -- (Wire envelopes are 100% end-to-end encrypted with AES-256-GCM; database cannot inspect contents)
+drop policy if exists "Allow read wire messages" on public.wire_messages;
 create policy "Allow read wire messages"
   on public.wire_messages for select
   using (true);
 
+drop policy if exists "Allow insert wire messages" on public.wire_messages;
 create policy "Allow insert wire messages"
   on public.wire_messages for insert
   with check (true);
 
+drop policy if exists "Allow update wire messages" on public.wire_messages;
 create policy "Allow update wire messages"
   on public.wire_messages for update
   using (true);
 
+drop policy if exists "Allow delete wire messages" on public.wire_messages;
 create policy "Allow delete wire messages"
   on public.wire_messages for delete
   using (true);
 
 -- Public key directory policies
+drop policy if exists "Allow read public keys" on public.public_keys;
 create policy "Allow read public keys"
   on public.public_keys for select
   using (true);
 
+drop policy if exists "Allow upsert public keys" on public.public_keys;
 create policy "Allow upsert public keys"
   on public.public_keys for all
   using (true)
   with check (true);
 
--- 6. Enable Realtime Replication for instant push notifications
-alter publication supabase_realtime add table public.wire_messages;
+-- 6. Create table for custom user accounts (PIN & Biometric status)
+create table if not exists public.user_accounts (
+  id text primary key,
+  username text unique not null,
+  name text,
+  avatar text,
+  has_pin boolean default false,
+  biometric_enabled boolean default false,
+  biometric_credential_id text,
+  created_at timestamp with time zone default now()
+);
+
+alter table public.user_accounts enable row level security;
+
+drop policy if exists "Allow all for user_accounts" on public.user_accounts;
+create policy "Allow all for user_accounts"
+  on public.user_accounts for all
+  using (true)
+  with check (true);
+
+-- 7. Enable Realtime Replication for instant push notifications
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables 
+    where pubname = 'supabase_realtime' and tablename = 'wire_messages'
+  ) then
+    alter publication supabase_realtime add table public.wire_messages;
+  end if;
+end $$;

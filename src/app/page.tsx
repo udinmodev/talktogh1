@@ -22,6 +22,15 @@ import { SafetyNumberModal } from "@/components/chat/SafetyNumberModal";
 import { SecurityCommandCenter } from "@/components/chat/SecurityCommandCenter";
 import { MobileSettingsPage } from "@/components/chat/MobileSettingsPage";
 import { AppLockScreen } from "@/components/chat/AppLockScreen";
+import { AuthLoginPage } from "@/components/auth/AuthLoginPage";
+import { SecuritySetupScreen } from "@/components/auth/SecuritySetupScreen";
+import {
+  getCurrentAuthUser,
+  isSessionUnlocked,
+  setSessionUnlocked,
+  logoutUser,
+  AuthUser,
+} from "@/lib/auth";
 import { EyeOff } from "lucide-react";
 
 // Professional profiles for multi-contact secure communication
@@ -73,10 +82,48 @@ const ALICE_PROFILE: User = {
 };
 
 export default function SecureChatApp() {
+  // User Authentication & Session State
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [isAuthLoaded, setIsAuthLoaded] = useState(false);
+
   // Current active user identity (Alice by default, can switch to Bob)
   const [currentUserId, setCurrentUserId] = useState<string>("alice");
   const [selectedContactId, setSelectedContactId] = useState<string>("bob");
   const [mobileView, setMobileView] = useState<"sidebar" | "chat" | "settings">("chat");
+
+  // Load auth state on client mount
+  useEffect(() => {
+    const user = getCurrentAuthUser();
+    setAuthUser(user);
+    if (user) {
+      setCurrentUserId(user.username);
+      if (user.isSecuritySetupComplete) {
+        setIsAppLocked(!isSessionUnlocked());
+      }
+    }
+    setIsAuthLoaded(true);
+  }, []);
+
+  const handleLoginSuccess = (user: AuthUser) => {
+    setAuthUser(user);
+    setCurrentUserId(user.username);
+    if (user.isSecuritySetupComplete) {
+      setIsAppLocked(!isSessionUnlocked());
+    }
+  };
+
+  const handleSecuritySetupComplete = (updatedUser: AuthUser) => {
+    setAuthUser(updatedUser);
+    setSessionUnlocked(true);
+    setIsAppLocked(false);
+    handleUpdateSettings({ appLockPin: updatedUser.pin });
+  };
+
+  const handleLogout = () => {
+    logoutUser();
+    setAuthUser(null);
+    setIsAppLocked(false);
+  };
 
   // Crypto Keys in state
   const [sessionKey, setSessionKey] = useState<CryptoKey | null>(null);
@@ -125,11 +172,19 @@ export default function SecureChatApp() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isPeerTyping, setIsPeerTyping] = useState<boolean>(false);
 
-  const currentUser = currentUserId === "alice" ? ALICE_PROFILE : ALL_CONTACTS[0];
+  const currentUser: User = {
+    id: authUser ? authUser.username : (currentUserId === "alice" ? "alice" : "bob"),
+    name: authUser ? authUser.name : (currentUserId === "alice" ? ALICE_PROFILE.name : ALL_CONTACTS[0].name),
+    role: authUser?.role || (currentUserId === "alice" ? "owner" : "contact"),
+    avatar: authUser?.avatar || (currentUserId === "alice" ? ALICE_PROFILE.avatar : ALL_CONTACTS[0].avatar),
+    phone: "+1 (555) 019-2834",
+    about: "Using secure private messenger.",
+    publicKeyFingerprint: (authUser ? authUser.username : currentUserId) === "bob" ? "E730D8192BF04C61" : "A9F438B2C19E77A0",
+    isOnline: true,
+  };
+
   const contactUser =
-    currentUserId === "alice"
-      ? ALL_CONTACTS.find((c) => c.id === selectedContactId) || ALL_CONTACTS[0]
-      : ALICE_PROFILE;
+    ALL_CONTACTS.find((c) => c.id !== currentUser.id) || ALL_CONTACTS[0];
 
   // Register identity with WebSocket relay server
   useEffect(() => {
@@ -747,6 +802,30 @@ export default function SecureChatApp() {
     }).catch(() => {});
   };
 
+  // 1. Initial hydration check
+  if (!isAuthLoaded) {
+    return (
+      <div className="w-screen h-screen bg-[#f8f9fa] flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-slate-300 border-t-slate-800 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // 2. Custom Login / Registration Gateway
+  if (!authUser) {
+    return <AuthLoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // 3. Post-Login PIN & Biometric Setup Onboarding
+  if (!authUser.isSecuritySetupComplete) {
+    return (
+      <SecuritySetupScreen
+        user={authUser}
+        onComplete={handleSecuritySetupComplete}
+      />
+    );
+  }
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-50 flex flex-col font-sans text-slate-900">
       {/* Main App Container - Edge to Edge Professional Interface */}
@@ -780,7 +859,11 @@ export default function SecureChatApp() {
               }
             }}
             onSwitchUser={handleSwitchUser}
-            onLockApp={() => setIsAppLocked(true)}
+            onLockApp={() => {
+              setSessionUnlocked(false);
+              setIsAppLocked(true);
+            }}
+            onLogout={handleLogout}
           />
         </div>
 
@@ -857,9 +940,16 @@ export default function SecureChatApp() {
       {/* App PIN / Biometric Lock Screen */}
       {isAppLocked && (
         <AppLockScreen
-          correctPin={settings.appLockPin}
-          onUnlock={() => setIsAppLocked(false)}
+          correctPin={authUser?.pin || settings.appLockPin || "1234"}
+          userName={authUser?.name || authUser?.username || "User"}
+          biometricEnabled={authUser?.biometricEnabled ?? true}
+          biometricCredentialId={authUser?.biometricCredentialId}
+          onUnlock={() => {
+            setSessionUnlocked(true);
+            setIsAppLocked(false);
+          }}
           onPanicBurn={handleEmergencyWipe}
+          onLogout={handleLogout}
         />
       )}
 

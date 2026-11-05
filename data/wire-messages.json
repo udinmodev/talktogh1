@@ -4,14 +4,14 @@
     "senderId": "alice",
     "recipientId": "bob",
     "encryptedPayload": {
-      "ciphertext": "A9gh6FGIuo9tn3numIfstBmF6mxhfVk3AjUMRcpUz06RKf3YgDc2CqQDEa8aMrZ5zu1knZI3tUPwxoV5l3U09nDNHYQQEIoGjqfAz0V0A8nPCogWLJsgXOK9VMZR+12IwTTl1JEobi619CrZimr5tsgArA==",
       "iv": "8i9sJXm2E1G8f2n3",
-      "algorithm": "AES-256-GCM (HKDF-SHA256)",
-      "senderId": "alice",
-      "recipientId": "bob",
-      "timestamp": 1793850663298,
       "keyEpoch": 1,
+      "senderId": "alice",
       "aadDigest": "F6F82A3FEF8F729D",
+      "algorithm": "AES-256-GCM (HKDF-SHA256)",
+      "timestamp": 1793850663298,
+      "ciphertext": "A9gh6FGIuo9tn3numIfstBmF6mxhfVk3AjUMRcpUz06RKf3YgDc2CqQDEa8aMrZ5zu1knZI3tUPwxoV5l3U09nDNHYQQEIoGjqfAz0V0A8nPCogWLJsgXOK9VMZR+12IwTTl1JEobi619CrZimr5tsgArA==",
+      "recipientId": "bob",
       "integrityStatus": "verified"
     },
     "timestamp": 1793850483298,
@@ -20,21 +20,24 @@
     "expiresAt": null,
     "viewOnce": false,
     "isBurned": false,
-    "isPinned": false
+    "isPinned": false,
+    "securityType": "standard",
+    "mediaType": null,
+    "reactions": {}
   },
   {
     "id": "msg-1793850663298-1",
     "senderId": "bob",
     "recipientId": "alice",
     "encryptedPayload": {
-      "ciphertext": "u5taIfNy0Cas96RsVyk4oaoIDPYnUI2sEEPdbNY71VG+gCCqpEeARnKz1sSyXMLrL9/qRJtzf/0SstQNbtOUCMoCQ5qwPcsr6dGlGAjMBhVri69Ho1gLhv7KScKYutcCr1UR5PtyEQB7sBX/te1q7NJaGa5PKCGIhgZ9TVR/aX3uZgKF/h8rzy/rQMxgHjl7E/Kwi8tcvc2HxLf5JFarWwbK3nECENCK3QsZtChizeHs9OO/hO8OCg/HaKeWYrQXaiFELbnNf8DPR2Dwx2M3RyNKGi+cq42dx61f9qnoG5QGjuvVKg2Hu+M0yxrw00+AqnkBiLKntGWTAYPpXKpplUmsnD1iE5MPm1YaCC2M906NClgVFLbsQj77Z7d5aK7RfOq8OGMNcaSuymKj8WWWK4s7czxLPcfigsqROKBa/G4fopanbgHslR/C49+gV5pDZnzoynsD4S5PQFGf0SNFfOM50w+0fPvUrlV10EFEZ4kaFBCh1XuVvyWCMb+tYllv53JcRkdeuo5RTAmekoRtAE3BaDUMTioj3CY17fsIYbFaHVfKBg48Ocef+U6Q5KxdcEzE6ZxPN+36MA6gYra4zS/ZQbVGw98FVV6C6SiUZ3Rwjz/cTf6LgmYfD9tOJf9+NytGWoF0eszB4V5WT8F5dmLgY24/E/fdL8qrW23HAAxranPGTvhrEsHYIub2K686/7qI98HbJ5cVmEhhyCeb9h2r4kHs1gD9E+hsJpHF4QJTObwOD/1l1GYNfnobzD4x1boENCVs",
       "iv": "pkkWsy/Q4JTOsAPO",
-      "algorithm": "AES-256-GCM (HKDF-SHA256)",
-      "senderId": "bob",
-      "recipientId": "alice",
-      "timestamp": 1793850663298,
       "keyEpoch": 1,
+      "senderId": "bob",
       "aadDigest": "55E5C1DDC029BC4E",
+      "algorithm": "AES-256-GCM (HKDF-SHA256)",
+      "timestamp": 1793850663298,
+      "ciphertext": "u5taIfNy0Cas96RsVyk4oaoIDPYnUI2sEEPdbNY71VG+gCCqpEeARnKz1sSyXMLrL9/qRJtzf/0SstQNbtOUCMoCQ5qwPcsr6dGlGAjMBhVri69Ho1gLhv7KScKYutcCr1UR5PtyEQB7sBX/te1q7NJaGa5PKCGIhgZ9TVR/aX3uZgKF/h8rzy/rQMxgHjl7E/Kwi8tcvc2HxLf5JFarWwbK3nECENCK3QsZtChizeHs9OO/hO8OCg/HaKeWYrQXaiFELbnNf8DPR2Dwx2M3RyNKGi+cq42dx61f9qnoG5QGjuvVKg2Hu+M0yxrw00+AqnkBiLKntGWTAYPpXKpplUmsnD1iE5MPm1YaCC2M906NClgVFLbsQj77Z7d5aK7RfOq8OGMNcaSuymKj8WWWK4s7czxLPcfigsqROKBa/G4fopanbgHslR/C49+gV5pDZnzoynsD4S5PQFGf0SNFfOM50w+0fPvUrlV10EFEZ4kaFBCh1XuVvyWCMb+tYllv53JcRkdeuo5RTAmekoRtAE3BaDUMTioj3CY17fsIYbFaHVfKBg48Ocef+U6Q5KxdcEzE6ZxPN+36MA6gYra4zS/ZQbVGw98FVV6C6SiUZ3Rwjz/cTf6LgmYfD9tOJf9+NytGWoF0eszB4V5WT8F5dmLgY24/E/fdL8qrW23HAAxranPGTvhrEsHYIub2K686/7qI98HbJ5cVmEhhyCeb9h2r4kHs1gD9E+hsJpHF4QJTObwOD/1l1GYNfnobzD4x1boENCVs",
+      "recipientId": "alice",
       "integrityStatus": "verified"
     },
     "timestamp": 1793850543298,
@@ -46,21 +49,23 @@
     "isPinned": false,
     "reactions": {
       "alice": "🙏"
-    }
+    },
+    "securityType": "standard",
+    "mediaType": null
   },
   {
     "id": "msg-1793850663298-2",
     "senderId": "alice",
     "recipientId": "bob",
     "encryptedPayload": {
-      "ciphertext": "HlsV6LHbeUQVuxXFP2sGoVh03Ugk7aofNlvie4SqLMD//X/fJQtyRhFaSTVxURQYNQOspsNl0qxsxXN2nxwCO/9QVRFkqB/pZmazBos0832PFtNj+Ob1qfNDJYe9EGSxXeeVFYIW4T40aMzautVLKOw=",
       "iv": "u/MsVPIrGvu0BxBR",
-      "algorithm": "AES-256-GCM (HKDF-SHA256)",
-      "senderId": "alice",
-      "recipientId": "bob",
-      "timestamp": 1793850663298,
       "keyEpoch": 1,
+      "senderId": "alice",
       "aadDigest": "F6F82A3FEF8F729D",
+      "algorithm": "AES-256-GCM (HKDF-SHA256)",
+      "timestamp": 1793850663298,
+      "ciphertext": "HlsV6LHbeUQVuxXFP2sGoVh03Ugk7aofNlvie4SqLMD//X/fJQtyRhFaSTVxURQYNQOspsNl0qxsxXN2nxwCO/9QVRFkqB/pZmazBos0832PFtNj+Ob1qfNDJYe9EGSxXeeVFYIW4T40aMzautVLKOw=",
+      "recipientId": "bob",
       "integrityStatus": "verified"
     },
     "timestamp": 1793850603298,
@@ -69,7 +74,10 @@
     "expiresAt": null,
     "viewOnce": false,
     "isBurned": false,
-    "isPinned": false
+    "isPinned": false,
+    "securityType": "standard",
+    "mediaType": null,
+    "reactions": {}
   },
   {
     "id": "msg-1793853623322-0",
