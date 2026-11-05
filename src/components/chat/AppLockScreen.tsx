@@ -27,7 +27,7 @@ export function AppLockScreen({
   const [error, setError] = useState(false);
   const [isPromptingBio, setIsPromptingBio] = useState(false);
 
-  // Auto-prompt biometric on mount if biometric is enabled
+  // Auto-prompt biometric on mount if enabled
   useEffect(() => {
     if (biometricEnabled) {
       triggerBiometricAuth();
@@ -70,126 +70,124 @@ export function AppLockScreen({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#f8f9fa] flex flex-col items-center justify-center p-6 text-slate-900 select-none">
-      <div className="w-full max-w-xs flex flex-col items-center space-y-5">
-        {/* Lock Icon */}
-        <div className="relative">
-          <div className="w-16 h-16 rounded-2xl bg-white border border-slate-200/90 shadow-sm flex items-center justify-center">
-            <Lock className="h-8 w-8 text-slate-900" />
+    <div className="fixed inset-0 z-50 bg-[#fafafa] flex flex-col items-center justify-center p-4 text-[#262626] font-sans select-none antialiased">
+      <div className="w-full max-w-[350px]">
+        {/* Flat Instagram-style Sharp Box */}
+        <div className="bg-white border border-[#dbdbdb] px-8 py-9 rounded-[1px] flex flex-col items-center">
+          {/* Lock Icon */}
+          <div className="w-14 h-14 rounded-full border border-[#dbdbdb] bg-[#fafafa] flex items-center justify-center text-slate-800 mb-3">
+            <Lock className="h-6 w-6 text-slate-700" />
           </div>
-          <div className="absolute -bottom-1 -right-1 bg-slate-900 rounded-lg p-1.5 shadow-sm">
-            <Shield className="h-3.5 w-3.5 text-emerald-400" />
+
+          {/* Title & User Greeting */}
+          <div className="text-center space-y-1 mb-4">
+            <h2 className="text-sm font-bold tracking-tight text-slate-900">
+              Welcome back, {userName}
+            </h2>
+            <p className="text-[11.5px] text-[#737373]">
+              Enter your passcode or scan biometrics to unlock
+            </p>
           </div>
-        </div>
 
-        {/* Title & User Greeting */}
-        <div className="text-center space-y-1">
-          <h2 className="text-base font-bold tracking-tight text-slate-900">
-            Welcome back, {userName}
-          </h2>
-          <p className="text-xs text-slate-500">
-            Enter your 4-digit passcode or use biometrics to unlock
-          </p>
-        </div>
+          {/* PIN Indicators */}
+          <div className="flex items-center gap-3 py-1 mb-4">
+            {[0, 1, 2, 3].map((idx) => {
+              const isFilled = pin.length > idx;
+              return (
+                <div
+                  key={idx}
+                  className={`w-3 h-3 rounded-full transition-all ${
+                    error
+                      ? "bg-[#ed4956] scale-110"
+                      : isFilled
+                      ? "bg-[#262626]"
+                      : "border border-[#c7c7c7] bg-white"
+                  }`}
+                />
+              );
+            })}
+          </div>
 
-        {/* PIN Indicators */}
-        <div className="flex items-center gap-3.5 py-1">
-          {[0, 1, 2, 3].map((idx) => {
-            const isFilled = pin.length > idx;
-            return (
-              <div
-                key={idx}
-                className={`w-3.5 h-3.5 rounded-full transition-all ${
-                  error
-                    ? "bg-rose-500 scale-110"
-                    : isFilled
-                    ? "bg-slate-900 scale-110"
-                    : "border border-slate-300 bg-white"
-                }`}
-              />
-            );
-          })}
-        </div>
-
-        {error && (
-          <p className="text-xs text-rose-600 font-medium">
-            Incorrect passcode. Try again.
-          </p>
-        )}
-
-        {/* Keypad */}
-        <div className="grid grid-cols-3 gap-3.5 w-full pt-1">
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((num) => (
-            <button
-              key={num}
-              type="button"
-              onClick={() => handleDigit(num)}
-              className="w-14 h-14 mx-auto rounded-full bg-white hover:bg-slate-100 active:bg-slate-200 border border-slate-200/80 text-xl font-medium transition-colors flex items-center justify-center cursor-pointer text-slate-800 shadow-xs"
-            >
-              {num}
-            </button>
-          ))}
-
-          {/* Biometric Trigger Icon Button */}
-          <button
-            type="button"
-            onClick={triggerBiometricAuth}
-            disabled={isPromptingBio}
-            className={`w-14 h-14 mx-auto rounded-full border border-slate-200/80 flex flex-col items-center justify-center cursor-pointer transition-colors shadow-xs ${
-              biometricEnabled
-                ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-700"
-                : "bg-white hover:bg-slate-100 text-slate-400"
-            }`}
-            title="Scan Biometric (Fingerprint / Face ID)"
-          >
-            <Fingerprint className={`h-6 w-6 ${isPromptingBio ? "animate-pulse" : ""}`} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleDigit("0")}
-            className="w-14 h-14 mx-auto rounded-full bg-white hover:bg-slate-100 active:bg-slate-200 border border-slate-200/80 text-xl font-medium transition-colors flex items-center justify-center cursor-pointer text-slate-800 shadow-xs"
-          >
-            0
-          </button>
-
-          <button
-            type="button"
-            onClick={handleDelete}
-            className="w-14 h-14 mx-auto rounded-full bg-transparent hover:bg-slate-100 text-slate-400 hover:text-slate-800 flex items-center justify-center cursor-pointer transition-colors text-xs font-semibold"
-          >
-            <Delete className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Action Links: Log out & Panic Burn */}
-        <div className="flex items-center justify-between w-full pt-4 border-t border-slate-200/60 text-xs text-slate-500">
-          {onLogout && (
-            <button
-              type="button"
-              onClick={onLogout}
-              className="flex items-center gap-1.5 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              <span>Switch Identity</span>
-            </button>
+          {error && (
+            <p className="text-xs text-[#ed4956] mb-3 text-center">
+              Incorrect passcode. Try again.
+            </p>
           )}
 
-          <button
-            type="button"
-            onClick={() => {
-              if (
-                window.confirm(
-                  "Are you sure you want to trigger emergency data wipe? All messages will be permanently deleted."
-                )
-              ) {
-                onPanicBurn();
-              }
-            }}
-            className="text-rose-600 hover:text-rose-700 transition-colors cursor-pointer"
-          >
-            Emergency Wipe
-          </button>
+          {/* Keypad */}
+          <div className="grid grid-cols-3 gap-2 w-full max-w-[220px]">
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((num) => (
+              <button
+                key={num}
+                type="button"
+                onClick={() => handleDigit(num)}
+                className="w-14 h-12 mx-auto rounded-[4px] border border-[#efefef] bg-[#fafafa] hover:bg-[#f0f0f0] active:bg-[#e5e5e5] text-base font-semibold transition-colors flex items-center justify-center cursor-pointer text-[#262626]"
+              >
+                {num}
+              </button>
+            ))}
+
+            {/* Biometric Scan Button */}
+            <button
+              type="button"
+              onClick={triggerBiometricAuth}
+              disabled={isPromptingBio}
+              className={`w-14 h-12 mx-auto rounded-[4px] border border-[#dbdbdb] flex flex-col items-center justify-center cursor-pointer transition-colors ${
+                biometricEnabled
+                  ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-700"
+                  : "bg-[#fafafa] hover:bg-[#f0f0f0] text-[#737373]"
+              }`}
+              title="Scan Biometrics"
+            >
+              <Fingerprint className={`h-5 w-5 ${isPromptingBio ? "animate-pulse" : ""}`} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleDigit("0")}
+              className="w-14 h-12 mx-auto rounded-[4px] border border-[#efefef] bg-[#fafafa] hover:bg-[#f0f0f0] active:bg-[#e5e5e5] text-base font-semibold transition-colors flex items-center justify-center cursor-pointer text-[#262626]"
+            >
+              0
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="w-14 h-12 mx-auto rounded-[4px] bg-transparent hover:bg-[#f5f5f5] text-[#737373] hover:text-[#262626] flex items-center justify-center cursor-pointer transition-colors text-xs font-semibold"
+            >
+              Delete
+            </button>
+          </div>
+
+          {/* Footer Actions */}
+          <div className="flex items-center justify-between w-full pt-5 mt-4 border-t border-[#f0f0f0] text-xs text-[#737373]">
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="flex items-center gap-1.5 text-[#0095f6] hover:text-[#00376b] font-semibold cursor-pointer"
+              >
+                <LogOut className="h-3 w-3" />
+                <span>Switch Identity</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Are you sure you want to trigger emergency data wipe? All messages will be permanently deleted."
+                  )
+                ) {
+                  onPanicBurn();
+                }
+              }}
+              className="text-[#ed4956] hover:underline cursor-pointer"
+            >
+              Emergency Wipe
+            </button>
+          </div>
         </div>
       </div>
     </div>
