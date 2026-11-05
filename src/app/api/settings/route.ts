@@ -23,10 +23,14 @@ export async function GET(request: Request) {
       );
 
       if (res.rows.length > 0 && res.rows[0].settings && Object.keys(res.rows[0].settings).length > 0) {
+        const userSettings = { ...DEFAULT_SETTINGS, ...res.rows[0].settings };
+        if (res.rows[0].settings.disappearingTimer === 30 && !res.rows[0].settings.explicitDisappearingTimer) {
+          userSettings.disappearingTimer = 0;
+        }
         return NextResponse.json({
           success: true,
           storage: "cloud-database",
-          settings: { ...DEFAULT_SETTINGS, ...res.rows[0].settings },
+          settings: userSettings,
         });
       }
 
@@ -41,10 +45,14 @@ export async function GET(request: Request) {
       );
 
       if (authRes.rows.length > 0 && authRes.rows[0].settings) {
+        const authSettings = { ...DEFAULT_SETTINGS, ...authRes.rows[0].settings };
+        if (authRes.rows[0].settings.disappearingTimer === 30 && !authRes.rows[0].settings.explicitDisappearingTimer) {
+          authSettings.disappearingTimer = 0;
+        }
         return NextResponse.json({
           success: true,
           storage: "cloud-auth-metadata",
-          settings: { ...DEFAULT_SETTINGS, ...authRes.rows[0].settings },
+          settings: authSettings,
         });
       }
     }

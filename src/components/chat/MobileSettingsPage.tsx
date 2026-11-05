@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { soundManager } from "@/lib/sound";
+import { hashPin, getCurrentAuthUser } from "@/lib/auth";
 
 interface MobileSettingsPageProps {
   settings: SecuritySettings;
@@ -36,7 +37,8 @@ export function MobileSettingsPage({
   onBack,
 }: MobileSettingsPageProps) {
   const [activeTab, setActiveTab] = useState<"security" | "customization">("security");
-  const [pinInput, setPinInput] = useState(settings.appLockPin || "1234");
+  const [pinInput, setPinInput] = useState("");
+  const [pinSaved, setPinSaved] = useState(false);
   const [savedBadge, setSavedBadge] = useState(false);
 
   const triggerUpdate = (newOpts: Partial<SecuritySettings>) => {
@@ -206,20 +208,33 @@ export function MobileSettingsPage({
 
               {settings.appLockEnabled && (
                 <div className="pt-2 flex items-center justify-between border-t border-[#f0f2f5]">
-                  <span className="text-xs text-[#65676b]">Passcode PIN</span>
+                  <div>
+                    <span className="text-xs text-[#65676b] block">Passcode PIN</span>
+                    <span className="text-[11px] text-[#8e8e93]">
+                      {pinSaved ? "✓ PIN updated securely" : "Enter 4 digits to set/change"}
+                    </span>
+                  </div>
                   <input
                     type="password"
                     maxLength={4}
                     value={pinInput}
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const val = e.target.value.replace(/\D/g, "");
                       setPinInput(val);
                       if (val.length === 4) {
-                        triggerUpdate({ appLockPin: val });
+                        const user = getCurrentAuthUser();
+                        const username = user?.username || "user";
+                        const hashed = await hashPin(val, username);
+                        triggerUpdate({ appLockPinHash: hashed });
+                        setPinSaved(true);
+                        setTimeout(() => {
+                          setPinInput("");
+                          setPinSaved(false);
+                        }, 1500);
                       }
                     }}
                     className="w-20 px-2 py-1 text-center font-mono font-bold tracking-widest text-sm bg-white border border-[#e4e6eb] rounded-lg text-[#050505] focus:outline-none focus:border-[#0084ff]"
-                    placeholder="1234"
+                    placeholder="••••"
                   />
                 </div>
               )}

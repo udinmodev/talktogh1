@@ -2,6 +2,46 @@ import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { getDbPool } from "@/lib/db";
 
+const MAX_APP_USERS = 2;
+
+// GET /api/auth/register - Check registration availability & capacity status
+export async function GET() {
+  let count = 0;
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      const countRes = await pool.query(
+        `SELECT COUNT(DISTINCT clean_user)::int AS count FROM (
+           SELECT lower(username) AS clean_user FROM public.user_accounts
+           WHERE lower(username) NOT IN ('alice', 'bob', 'elena', 'marcus')
+           UNION
+           SELECT lower(COALESCE(raw_user_meta_data->>'username', split_part(email, '@', 1))) AS clean_user
+           FROM auth.users
+           WHERE lower(COALESCE(raw_user_meta_data->>'username', split_part(email, '@', 1))) NOT IN ('alice', 'bob', 'elena', 'marcus')
+         ) all_users`
+      );
+      count = countRes.rows[0]?.count || 0;
+    } catch (err) {
+      console.warn("Capacity check notice:", err);
+    }
+  } else if (isSupabaseConfigured) {
+    const client = getSupabaseClient();
+    if (client) {
+      const { count: c } = await client
+        .from("user_accounts")
+        .select("id", { count: "exact", head: true });
+      count = c || 0;
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    userCount: count,
+    maxCapacity: MAX_APP_USERS,
+    isRegistrationClosed: count >= MAX_APP_USERS,
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -41,6 +81,46 @@ export async function POST(request: Request) {
       );
     }
 
+    const pool = getDbPool();
+
+    // 0. Strict 2-User Capacity Enforcement: Only 2 users total allowed across the entire app
+    let totalCount = 0;
+    if (pool) {
+      try {
+        const countRes = await pool.query(
+          `SELECT COUNT(DISTINCT clean_user)::int AS count FROM (
+             SELECT lower(username) AS clean_user FROM public.user_accounts
+             WHERE lower(username) NOT IN ('alice', 'bob', 'elena', 'marcus')
+             UNION
+             SELECT lower(COALESCE(raw_user_meta_data->>'username', split_part(email, '@', 1))) AS clean_user
+             FROM auth.users
+             WHERE lower(COALESCE(raw_user_meta_data->>'username', split_part(email, '@', 1))) NOT IN ('alice', 'bob', 'elena', 'marcus')
+           ) all_users`
+        );
+        totalCount = countRes.rows[0]?.count || 0;
+      } catch (countErr) {
+        console.warn("Capacity count notice:", countErr);
+      }
+    } else {
+      const { count } = await client
+        .from("user_accounts")
+        .select("id", { count: "exact", head: true });
+      totalCount = count || 0;
+    }
+
+    if (totalCount >= MAX_APP_USERS) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Registration is permanently closed. This private application has reached its maximum capacity of 2 users.",
+          capacityReached: true,
+          count: totalCount,
+          maxCapacity: MAX_APP_USERS,
+        },
+        { status: 403 }
+      );
+    }
+
     // Determine valid Supabase email:
     let emailToRegister = "";
     if (directEmail && String(directEmail).includes("@")) {
@@ -52,7 +132,6 @@ export async function POST(request: Request) {
     }
 
     // 1. Check if username or email already exists in user_accounts or auth.users
-    const pool = getDbPool();
     if (pool) {
       const existingRes = await pool.query(
         `SELECT a.id FROM public.user_accounts a
@@ -135,7 +214,7 @@ export async function POST(request: Request) {
       avatar: avatarUrl,
       role: "owner" as const,
       hasPin: false,
-      pin: "",
+      pinHash: "",
       biometricEnabled: false,
       isSecuritySetupComplete: false,
       createdAt: Date.now(),

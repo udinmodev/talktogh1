@@ -1,18 +1,30 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { getDbPool } from "@/lib/db";
+import crypto from "crypto";
+
+function computeServerPinHash(pin: string, username: string): string {
+  const salt = `talktogether_pin_salt_v2_${username.trim().toLowerCase()}`;
+  return crypto.pbkdf2Sync(pin, salt, 100000, 32, "sha256").toString("hex");
+}
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { username, pin, biometricEnabled, credentialId } = body;
+    const { username, pin, pinHash, biometricEnabled, credentialId } = body;
 
     const rawUser = String(username || "").trim().toLowerCase();
     const cleanUser = (rawUser.includes("@") ? rawUser.split("@")[0] : rawUser).replace(/[^a-zA-Z0-9._-]/g, "");
 
-    if (!cleanUser || !pin) {
+    // Accept pre-hashed PIN from client or compute salted PBKDF2 hash
+    let securePinHash = typeof pinHash === "string" && pinHash.length === 64 ? pinHash : "";
+    if (!securePinHash && pin) {
+      securePinHash = computeServerPinHash(String(pin), cleanUser);
+    }
+
+    if (!cleanUser || !securePinHash) {
       return NextResponse.json(
-        { success: false, error: "Username and PIN are required." },
+        { success: false, error: "Username and valid security PIN are required." },
         { status: 400 }
       );
     }
@@ -26,24 +38,23 @@ export async function POST(request: Request) {
 
     const pool = getDbPool();
 
-    // 1. Update user_metadata in auth.users
+    // 1. Update user_metadata in auth.users (Save salted hash, strip plaintext pin)
     if (pool) {
       try {
         await pool.query(
           `UPDATE auth.users
-           SET raw_user_meta_data = jsonb_set(
+           SET raw_user_meta_data = (
              jsonb_set(
                jsonb_set(
                  COALESCE(raw_user_meta_data, '{}'::jsonb),
-                 '{pin}', to_jsonb($1::text)
+                 '{pin_hash}', to_jsonb($1::text)
                ),
-               '{has_pin}', 'true'::jsonb
-             ),
-             '{biometric_enabled}', to_jsonb($2::boolean)
+               '{biometric_enabled}', to_jsonb($2::boolean)
+             ) - 'pin'
            )
            WHERE lower(COALESCE(raw_user_meta_data->>'username', email)) = $3
               OR lower(email) LIKE $4`,
-          [String(pin), Boolean(biometricEnabled), cleanUser, `${cleanUser}@%`]
+          [securePinHash, Boolean(biometricEnabled), cleanUser, `${cleanUser}@%`]
         );
 
         // 2. Update user_accounts table in public schema

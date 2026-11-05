@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { getDbPool } from "@/lib/db";
+import crypto from "crypto";
 
 export async function POST(request: Request) {
   try {
@@ -84,7 +85,17 @@ export async function POST(request: Request) {
 
     let hasPin = Boolean(meta.has_pin);
     let biometricEnabled = Boolean(meta.biometric_enabled);
-    let pinCode = meta.pin || "";
+    let pinHash = typeof meta.pin_hash === "string" ? meta.pin_hash : "";
+
+    if (!pinHash && meta.pin) {
+      // Legacy unhashed pin in DB: hash it immediately so plaintext is never exposed
+      const salt = `talktogether_pin_salt_v2_${username}`;
+      pinHash = crypto.pbkdf2Sync(String(meta.pin), salt, 100000, 32, "sha256").toString("hex");
+    }
+
+    if (pinHash) {
+      hasPin = true;
+    }
 
     // Load account settings from user_accounts
     if (pool) {
@@ -94,7 +105,7 @@ export async function POST(request: Request) {
           [username]
         );
         if (accRes.rows.length > 0) {
-          hasPin = Boolean(accRes.rows[0].has_pin);
+          hasPin = Boolean(accRes.rows[0].has_pin) || hasPin;
           biometricEnabled = Boolean(accRes.rows[0].biometric_enabled);
         }
       } catch {}
@@ -111,7 +122,7 @@ export async function POST(request: Request) {
         `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(displayName)}`,
       role: "owner" as const,
       hasPin,
-      pin: pinCode,
+      pinHash, // Salted PBKDF2 hash (Zero plaintext exposure)
       biometricEnabled,
       isSecuritySetupComplete,
       createdAt: Date.now(),

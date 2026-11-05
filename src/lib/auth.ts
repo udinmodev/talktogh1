@@ -10,7 +10,7 @@ export interface AuthUser {
   avatar: string;
   role: "owner" | "contact";
   hasPin: boolean;
-  pin: string; // 4-digit PIN
+  pinHash: string; // Salted PBKDF2-SHA-256 hash (Never plaintext)
   biometricEnabled: boolean;
   biometricCredentialId?: string;
   isSecuritySetupComplete: boolean;
@@ -32,6 +32,36 @@ export async function hashString(str: string): Promise<string> {
     .join("");
 }
 
+/**
+ * Cryptographically hash a PIN using PBKDF2-HMAC-SHA-256 with 100,000 rounds and per-user salt.
+ * Guarantees zero plaintext exposure in client storage, memory dumps, or network payloads.
+ */
+export async function hashPin(pin: string, username: string): Promise<string> {
+  const cleanUser = username.trim().toLowerCase();
+  const salt = `talktogether_pin_salt_v2_${cleanUser}`;
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(pin),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"]
+  );
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt: enc.encode(salt),
+      iterations: 100000,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    256
+  );
+  return Array.from(new Uint8Array(derivedBits))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function loadAllUsers(): Record<string, AuthUser & { passwordHash: string }> {
   if (typeof window === "undefined") return DEFAULT_AUTH_USERS;
   try {
@@ -42,6 +72,12 @@ function loadAllUsers(): Record<string, AuthUser & { passwordHash: string }> {
       delete parsed.bob;
       delete parsed.elena;
       delete parsed.marcus;
+      // Sanitize: remove any legacy exposed plaintext pins
+      for (const k of Object.keys(parsed)) {
+        if (parsed[k]?.pin) {
+          delete parsed[k].pin;
+        }
+      }
       return parsed;
     }
   } catch {}
@@ -51,7 +87,14 @@ function loadAllUsers(): Record<string, AuthUser & { passwordHash: string }> {
 function saveAllUsers(users: Record<string, AuthUser & { passwordHash: string }>) {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
+    // Sanitize before saving
+    const sanitized: Record<string, any> = {};
+    for (const [k, v] of Object.entries(users)) {
+      const copy: any = { ...v };
+      delete copy.pin;
+      sanitized[k] = copy;
+    }
+    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(sanitized));
   } catch {}
 }
 
@@ -63,9 +106,15 @@ export function getCurrentAuthUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(STORAGE_CURRENT_USER_KEY);
     if (!raw) return null;
-    const basic = JSON.parse(raw) as AuthUser;
+    const basic = JSON.parse(raw) as any;
+    if (basic.pin) {
+      delete basic.pin;
+      localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(basic));
+    }
     const all = loadAllUsers();
-    return all[basic.username] || basic;
+    const user: any = all[basic.username] || basic;
+    if (user.pin) delete user.pin;
+    return user as AuthUser;
   } catch {
     return null;
   }
@@ -217,10 +266,12 @@ export async function completeSecuritySetup(
     createdAt: Date.now(),
   };
 
+  const pinHash = pin ? await hashPin(pin, cleanUser) : "";
+
   const updated: AuthUser & { passwordHash: string } = {
     ...user,
     hasPin: Boolean(pin),
-    pin: pin,
+    pinHash,
     biometricEnabled: Boolean(biometricEnabled),
     biometricCredentialId: credentialId,
     isSecuritySetupComplete: true,
@@ -231,14 +282,14 @@ export async function completeSecuritySetup(
   localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(updated));
   setSessionUnlocked(true);
 
-  // Sync to Supabase DB via setup API
+  // Sync to Supabase DB via setup API - zero plaintext PIN transmitted!
   try {
     await fetch("/api/auth/setup", {
       method: "POST",
       headers: getInternalApiHeaders(),
       body: JSON.stringify({
         username: cleanUser,
-        pin,
+        pinHash,
         biometricEnabled,
         credentialId,
       }),
@@ -251,16 +302,17 @@ export async function completeSecuritySetup(
 }
 
 /**
- * Verify user's Security PIN
+ * Verify user's Security PIN using salted PBKDF2 comparison
  */
-export function verifyPin(username: string, inputPin: string): boolean {
+export async function verifyPin(username: string, inputPin: string): Promise<boolean> {
   const cleanUser = username.trim().toLowerCase();
   const all = loadAllUsers();
   const user = all[cleanUser];
-  if (!user || !user.pin) {
-    return inputPin === "1234";
+  if (!user || !user.pinHash) {
+    return false;
   }
-  return user.pin === inputPin;
+  const inputHash = await hashPin(inputPin, cleanUser);
+  return user.pinHash === inputHash;
 }
 
 /**

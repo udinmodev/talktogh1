@@ -26,6 +26,30 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [capacity, setCapacity] = useState<{
+    userCount: number;
+    maxCapacity: number;
+    isRegistrationClosed: boolean;
+  }>({ userCount: 0, maxCapacity: 2, isRegistrationClosed: false });
+
+  React.useEffect(() => {
+    fetch("/api/auth/register")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && data.success) {
+          const isClosed = Boolean(data.isRegistrationClosed);
+          setCapacity({
+            userCount: Number(data.userCount) || 0,
+            maxCapacity: Number(data.maxCapacity) || 2,
+            isRegistrationClosed: isClosed,
+          });
+          if (isClosed) {
+            setMode("login");
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +65,11 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
           setError(res.error || "Sorry, your credentials were incorrect.");
         }
       } else {
+        if (capacity.isRegistrationClosed) {
+          setError("Registration is closed. This private network only allows 2 users.");
+          setLoading(false);
+          return;
+        }
         const res = await registerUser(username, password, displayName);
         if (res.success && res.user) {
           onLoginSuccess(res.user);
@@ -77,9 +106,11 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
                 {mode === "login" ? "Sign in" : "Create account"}
               </h1>
               <p className="text-sm text-[#65676b] mt-1 font-normal">
-                {mode === "login"
-                  ? "Connect with your friends on TalkTogether"
-                  : "Private messaging with end-to-end encryption"}
+                {capacity.isRegistrationClosed
+                  ? "Private 2-Party Messenger • Network Full (2/2 users)"
+                  : mode === "login"
+                  ? "Connect with your partner on TalkTogether"
+                  : `Private 2-Party Messenger • ${capacity.userCount}/2 Registered`}
               </p>
             </div>
 
@@ -101,17 +132,25 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
               </button>
               <button
                 type="button"
+                disabled={capacity.isRegistrationClosed}
                 onClick={() => {
+                  if (capacity.isRegistrationClosed) {
+                    setError("Registration is closed. This private network only allows 2 users maximum.");
+                    return;
+                  }
                   setMode("register");
                   setError(null);
                 }}
-                className={`flex-1 py-1.5 px-4 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                  mode === "register"
-                    ? "bg-white text-[#0084ff] shadow-xs"
-                    : "text-[#65676b] hover:text-[#050505]"
+                className={`flex-1 py-1.5 px-4 rounded-full text-xs font-semibold transition-all ${
+                  capacity.isRegistrationClosed
+                    ? "text-[#8a8d91] opacity-60 cursor-not-allowed"
+                    : mode === "register"
+                    ? "bg-white text-[#0084ff] shadow-xs cursor-pointer"
+                    : "text-[#65676b] hover:text-[#050505] cursor-pointer"
                 }`}
+                title={capacity.isRegistrationClosed ? "Network full: 2 users maximum" : undefined}
               >
-                Create account
+                {capacity.isRegistrationClosed ? "Closed (2/2)" : "Create account"}
               </button>
             </div>
 

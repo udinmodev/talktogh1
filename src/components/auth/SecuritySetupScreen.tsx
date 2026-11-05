@@ -89,6 +89,8 @@ export function SecuritySetupScreen({ user, onComplete }: SecuritySetupScreenPro
 
   const handleFinishSetup = async (withBiometrics: boolean) => {
     const updated = await completeSecuritySetup(user.username, pin, withBiometrics, bioCredId);
+    setPin("");
+    setConfirmPin("");
     if (updated) {
       onComplete(updated);
     }

@@ -94,7 +94,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     setAuthUser(updatedUser);
     setSessionUnlocked(true);
     setIsAppLocked(false);
-    handleUpdateSettings({ appLockPin: updatedUser.pin });
+    handleUpdateSettings({ appLockPinHash: updatedUser.pinHash });
   };
 
   const handleLogout = () => {
@@ -123,7 +123,12 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     try {
       const saved = localStorage.getItem(`wechat_settings_${cleanCurrentId}`);
       if (saved) {
-        setSettings((prev) => ({ ...prev, ...JSON.parse(saved) }));
+        const parsed = JSON.parse(saved);
+        // Force default to 0 (Off) if it was previously set to the old 30s default
+        if (parsed.disappearingTimer === 30 && !localStorage.getItem(`wechat_dtimer_explicit_${cleanCurrentId}`)) {
+          parsed.disappearingTimer = 0;
+        }
+        setSettings((prev) => ({ ...prev, ...parsed }));
       }
     } catch {}
 
@@ -133,9 +138,14 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       .then((r) => r.json())
       .then((data) => {
         if (data.success && data.settings) {
-          setSettings((prev) => ({ ...prev, ...data.settings }));
+          const s = data.settings;
+          // Force default to 0 (Off) if it was previously initialized to the old 30s default
+          if (s.disappearingTimer === 30 && !localStorage.getItem(`wechat_dtimer_explicit_${cleanCurrentId}`)) {
+            s.disappearingTimer = 0;
+          }
+          setSettings((prev) => ({ ...prev, ...s }));
           try {
-            localStorage.setItem(`wechat_settings_${cleanCurrentId}`, JSON.stringify(data.settings));
+            localStorage.setItem(`wechat_settings_${cleanCurrentId}`, JSON.stringify(s));
           } catch {}
         }
       })
@@ -146,6 +156,12 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     (newOpts: Partial<SecuritySettings>) => {
       setSettings((prev) => {
         const updated = { ...prev, ...newOpts };
+
+        if (newOpts.disappearingTimer !== undefined) {
+          try {
+            localStorage.setItem(`wechat_dtimer_explicit_${cleanCurrentId}`, "true");
+          } catch {}
+        }
 
         try {
           localStorage.setItem(`wechat_settings_${cleanCurrentId}`, JSON.stringify(updated));
@@ -254,17 +270,12 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       isOnline: false,
     };
 
-  // Register identity with WebSocket relay server
-  useEffect(() => {
-    if (currentUser.id && currentUser.id !== "user") {
-      setIsLoadingMessages(true);
-      secureSocket.registerUser(currentUser.id);
-      secureSocket.requestMessageSync(currentUser.id);
-    }
-  }, [currentUser.id]);
-
   // Load real registered user accounts from Supabase (Zero fake chats, zero mock channels)
   const loadLiveContacts = useCallback(async (myId: string) => {
+    const safetyTimer = setTimeout(() => {
+      setIsLoadingContacts(false);
+    }, 2500);
+
     try {
       const res = await fetch("/api/users", {
         headers: getInternalApiHeaders(),
@@ -293,14 +304,13 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
           setContacts(registeredUsers);
           if (routeContactId) {
             setSelectedContactId(routeContactId);
-          } else {
-            setSelectedContactId("");
           }
         }
       }
     } catch (err) {
       console.warn("Contact load error:", err);
     } finally {
+      clearTimeout(safetyTimer);
       setIsLoadingContacts(false);
     }
   }, [routeContactId]);
@@ -377,6 +387,56 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     }
   }, [currentUser.id]);
 
+  // Load initial messages via secure REST endpoint and WebSocket sync
+  const loadInitialMessages = useCallback(
+    async (myId: string) => {
+      if (!myId || myId === "user") {
+        setIsLoadingMessages(false);
+        return;
+      }
+
+      setIsLoadingMessages(true);
+      const cleanId = String(myId).split("@")[0].toLowerCase();
+
+      // Failsafe timer: Maximum 2 seconds of skeleton loading under any network condition
+      const timer = setTimeout(() => {
+        setIsLoadingMessages(false);
+      }, 2000);
+
+      try {
+        // 1. Trigger WebSocket sync if active
+        secureSocket.registerUser(cleanId);
+        secureSocket.requestMessageSync(cleanId);
+
+        // 2. Fetch persisted messages from REST route
+        const res = await fetch(`/api/messages?userId=${encodeURIComponent(cleanId)}`, {
+          headers: getInternalApiHeaders(),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.messages)) {
+            await processIncomingWireBatch(data.messages);
+          }
+        }
+      } catch (err) {
+        console.warn("Message sync fetch notice:", err);
+      } finally {
+        clearTimeout(timer);
+        setIsLoadingMessages(false);
+      }
+    },
+    [processIncomingWireBatch]
+  );
+
+  useEffect(() => {
+    if (currentUser.id && currentUser.id !== "user") {
+      loadInitialMessages(currentUser.id);
+    } else {
+      setIsLoadingMessages(false);
+    }
+  }, [currentUser.id, loadInitialMessages]);
+
   // Supabase Realtime Listener
   useEffect(() => {
     if (!currentUser.id || currentUser.id === "user") return;
@@ -412,7 +472,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
 
             const chatKey = await getPairSessionKey(currentUser.id, partnerId);
             const decrypted = await decryptMessageContent(wire.encryptedPayload, chatKey);
-            const duration = wire.disappearingDuration ?? settings.disappearingTimer ?? null;
+            const duration = wire.disappearingDuration && wire.disappearingDuration > 0 ? wire.disappearingDuration : null;
 
             const newMsg: Message = {
               id: wire.id,
@@ -571,9 +631,9 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
           const key = await getPairSessionKey(currentUser.id, partnerId);
           const decrypted = await decryptMessageContent(action.payload, key);
           const duration =
-            action.disappearingDuration !== undefined
+            action.disappearingDuration && action.disappearingDuration > 0
               ? action.disappearingDuration
-              : settings.disappearingTimer || null;
+              : null;
 
           const newMsg: Message = {
             id: action.messageId,
@@ -698,7 +758,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
 
         const effectiveDuration =
           customDuration !== undefined && customDuration !== null
-            ? customDuration
+            ? (customDuration > 0 ? customDuration : null)
             : settings.disappearingTimer > 0
             ? settings.disappearingTimer
             : null;
@@ -755,12 +815,32 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
             securityType: newMsg.securityType,
           });
         } catch (netErr) {
-          console.error("Broadcast failed:", netErr);
-          setMessages((prev) =>
-            prev.map((m) => (m.id === newMsgId ? { ...m, status: "error" } : m))
-          );
-          setNetworkError("Network transmission error: Failed to reach relay server.");
+          console.warn("Broadcast warning:", netErr);
         }
+
+        // Persist zero-knowledge wire envelope to database
+        const wireData = {
+          id: newMsgId,
+          senderId: currentUser.id,
+          recipientId: contactUser.id,
+          encryptedPayload: payload,
+          timestamp: newMsg.timestamp,
+          status: "delivered",
+          disappearingDuration: effectiveDuration,
+          expiresAt: newMsg.expiresAt,
+          viewOnce: Boolean(viewOnce),
+          isBurned: false,
+          isPinned: false,
+          securityType: newMsg.securityType,
+          mediaType,
+          mediaUrl,
+        };
+
+        fetch("/api/messages", {
+          method: "POST",
+          headers: getInternalApiHeaders(),
+          body: JSON.stringify({ action: "send", message: wireData }),
+        }).catch((err) => console.warn("Cloud message persist notice:", err));
       } catch (err) {
         console.error("Encryption failed:", err);
       }
@@ -785,6 +865,12 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       messageId,
       isPinned: nextPinnedState,
     });
+
+    fetch("/api/messages", {
+      method: "POST",
+      headers: getInternalApiHeaders(),
+      body: JSON.stringify({ action: "pin", messageId, isPinned: nextPinnedState }),
+    }).catch((err) => console.warn("Cloud message pin notice:", err));
   };
 
   const handleBurnMessage = (messageId: string) => {
@@ -796,6 +882,12 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       type: "VIEW_ONCE_OPENED",
       messageId,
     });
+
+    fetch("/api/messages", {
+      method: "POST",
+      headers: getInternalApiHeaders(),
+      body: JSON.stringify({ action: "burn", messageId }),
+    }).catch((err) => console.warn("Cloud message burn notice:", err));
   };
 
   const handleTyping = (isTyping: boolean) => {
@@ -828,6 +920,16 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       emoji,
       userId: currentUser.id,
     });
+
+    fetch("/api/messages", {
+      method: "POST",
+      headers: getInternalApiHeaders(),
+      body: JSON.stringify({
+        action: "reaction",
+        messageId,
+        reaction: { userId: currentUser.id, emoji },
+      }),
+    }).catch((err) => console.warn("Cloud message reaction notice:", err));
   };
 
   const activeMessages = messages.filter(
@@ -917,7 +1019,8 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
   if (isAppLocked || !isSessionUnlocked()) {
     return (
       <AppLockScreen
-        correctPin={authUser?.pin || settings.appLockPin || "1234"}
+        pinHash={authUser?.pinHash || settings.appLockPinHash || ""}
+        username={cleanCurrentId}
         userName={authUser?.name || authUser?.username || "User"}
         biometricEnabled={authUser?.biometricEnabled ?? true}
         biometricCredentialId={authUser?.biometricCredentialId}

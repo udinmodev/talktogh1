@@ -57,7 +57,7 @@ export interface SecuritySettings {
   disappearingTimer: number; // 0 = off, 10 = 10s, 30 = 30s, 60 = 1m, 3600 = 1h, 86400 = 24h
   safetyNumberVerified: boolean;
   appLockEnabled: boolean;
-  appLockPin: string;
+  appLockPinHash: string;
   inactivityLockSeconds: number; // 60, 300, 0 = immediate
   privacyCurtain: boolean; // Auto-blur on tab switch / window blur
   antiScreenshotWatermark: boolean;
@@ -77,10 +77,10 @@ export interface SecuritySettings {
 
 export const DEFAULT_SETTINGS: SecuritySettings = {
   e2eeEnabled: true,
-  disappearingTimer: 30,
+  disappearingTimer: 0, // 0 = Off by default
   safetyNumberVerified: true,
   appLockEnabled: false,
-  appLockPin: "1234",
+  appLockPinHash: "",
   inactivityLockSeconds: 60,
   privacyCurtain: false,
   antiScreenshotWatermark: false,

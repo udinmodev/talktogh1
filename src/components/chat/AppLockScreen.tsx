@@ -3,9 +3,11 @@
 import React, { useState, useEffect } from "react";
 import { Lock, Delete, Shield, Fingerprint, LogOut } from "lucide-react";
 import { verifyBiometric } from "@/lib/biometric";
+import { hashPin } from "@/lib/auth";
 
 interface AppLockScreenProps {
-  correctPin: string;
+  pinHash?: string;
+  username: string;
   userName?: string;
   biometricEnabled?: boolean;
   biometricCredentialId?: string;
@@ -15,7 +17,8 @@ interface AppLockScreenProps {
 }
 
 export function AppLockScreen({
-  correctPin,
+  pinHash,
+  username,
   userName = "User",
   biometricEnabled = true,
   biometricCredentialId,
@@ -48,18 +51,21 @@ export function AppLockScreen({
     }
   };
 
-  const handleDigit = (digit: string) => {
+  const handleDigit = async (digit: string) => {
     if (pin.length < 4) {
       const nextPin = pin + digit;
       setPin(nextPin);
       setError(false);
       if (nextPin.length === 4) {
-        if (nextPin === correctPin || nextPin === "1234") {
-          onUnlock();
-        } else {
-          setError(true);
-          setTimeout(() => setPin(""), 600);
+        if (pinHash) {
+          const enteredHash = await hashPin(nextPin, username);
+          if (enteredHash === pinHash) {
+            onUnlock();
+            return;
+          }
         }
+        setError(true);
+        setTimeout(() => setPin(""), 600);
       }
     }
   };

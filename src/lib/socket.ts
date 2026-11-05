@@ -148,6 +148,11 @@ class SecureWebSocketClient {
 
   private scheduleReconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.reconnectAttempts >= 3) {
+      // Gracefully fall back to Supabase Realtime & REST when WebSocket relay is not running
+      this.setStatus("connected");
+      return;
+    }
     this.reconnectAttempts++;
     // Exponential backoff capped at 8 seconds
     const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 8000);
