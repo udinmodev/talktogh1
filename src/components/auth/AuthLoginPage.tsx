@@ -75,98 +75,12 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
       : username.trim().length >= 3 && password.length >= 4 && displayName.trim().length > 0;
 
   return (
-    <div className="min-h-screen bg-[#fafafa] flex flex-col justify-between py-8 px-4 text-[#262626] font-sans antialiased selection:bg-blue-100">
-      {/* Center Layout Container: Split mockup + login box on desktop */}
+    <div className="min-h-screen bg-[#fafafa] flex flex-col justify-between py-10 px-4 text-[#262626] font-sans antialiased selection:bg-blue-100 select-none">
+      {/* Centered Login Box */}
       <main className="flex-1 flex items-center justify-center">
-        <div className="w-full max-w-[850px] flex items-center justify-center gap-8 lg:gap-12">
-          {/* Left Column: Instagram-style Phone Mockup Canvas (Desktop only) */}
-          <div className="hidden md:flex relative shrink-0 w-[380px] h-[580px] items-center justify-center">
-            {/* Phone Outer Shell */}
-            <div className="relative w-[340px] h-[560px] bg-white rounded-[44px] p-3 border-[9px] border-[#1e293b] shadow-[0_20px_50px_rgba(0,0,0,0.12)] flex flex-col overflow-hidden">
-              {/* Dynamic Island / Speaker Notch */}
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 w-24 h-4 bg-[#1e293b] rounded-full z-20 flex items-center justify-center">
-                <div className="w-2.5 h-2.5 rounded-full bg-slate-900 ml-auto mr-2" />
-              </div>
-
-              {/* Mockup Screen Viewport */}
-              <div className="w-full h-full bg-[#f8f9fa] rounded-[34px] overflow-hidden flex flex-col pt-7 px-3.5 pb-4 select-none relative">
-                {/* Mock Header */}
-                <div className="h-11 flex items-center justify-between border-b border-slate-200/80 px-1 pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full bg-[#07c160] flex items-center justify-center text-white text-[11px] font-bold">
-                      A
-                    </div>
-                    <div>
-                      <div className="text-[12px] font-semibold text-slate-900 leading-none">
-                        Alice Vance
-                      </div>
-                      <div className="text-[10px] text-emerald-600 font-medium mt-0.5 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        End-to-End Encrypted
-                      </div>
-                    </div>
-                  </div>
-                  <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                </div>
-
-                {/* Mock Conversation Stream */}
-                <div className="flex-1 py-3 space-y-2.5 overflow-hidden flex flex-col justify-end">
-                  <div className="flex justify-center my-1">
-                    <span className="text-[9.5px] bg-slate-200/60 text-slate-500 px-2.5 py-0.5 rounded-full">
-                      🔒 Zero-Knowledge Channel Active
-                    </span>
-                  </div>
-
-                  {/* Incoming bubble */}
-                  <div className="flex flex-col items-start max-w-[85%]">
-                    <div className="bg-white border border-slate-200/90 text-slate-800 text-[11px] px-3 py-2 rounded-2xl rounded-bl-sm leading-relaxed shadow-xs">
-                      Hey! Verified your 60-digit safety numbers. Channel is verified.
-                    </div>
-                    <span className="text-[9px] text-slate-400 mt-0.5 pl-1">10:14 AM</span>
-                  </div>
-
-                  {/* Outgoing bubble */}
-                  <div className="flex flex-col items-end self-end max-w-[85%]">
-                    <div className="bg-[#007aff] text-white text-[11px] px-3 py-2 rounded-2xl rounded-br-sm leading-relaxed">
-                      Perfect. All messages remain AES-256 encrypted before reaching Supabase.
-                    </div>
-                    <span className="text-[9px] text-slate-400 mt-0.5 pr-1">10:15 AM · Read</span>
-                  </div>
-
-                  {/* Biometric Prompt Card Overlay */}
-                  <div className="mt-2 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl p-3 shadow-md">
-                    <div className="flex items-center gap-2.5 mb-2">
-                      <div className="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                        <Fingerprint className="h-4 w-4" />
-                      </div>
-                      <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-900">
-                          Biometric & PIN Lock
-                        </div>
-                        <div className="text-[9px] text-slate-500">
-                          Touch ID & Windows Hello Ready
-                        </div>
-                      </div>
-                    </div>
-                    <div className="h-1 w-full bg-emerald-500 rounded-full" />
-                  </div>
-                </div>
-
-                {/* Mock Bottom Input Bar */}
-                <div className="h-9 bg-white border border-slate-200/90 rounded-full px-3 flex items-center justify-between text-[11px] text-slate-400 mt-2">
-                  <span>Message...</span>
-                  <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center text-white text-[9px] font-bold">
-                    ↑
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: Instagram-style Authentication Stack */}
-          <div className="w-full max-w-[350px] flex flex-col">
-            {/* Primary Instagram-style Box */}
-            <div className="bg-white border border-[#dbdbdb] px-8 sm:px-10 pt-10 pb-7 rounded-[1px] text-center">
+        <div className="w-full max-w-[350px] flex flex-col">
+          {/* Primary Instagram-style Box */}
+          <div className="bg-white border border-[#dbdbdb] px-8 sm:px-10 pt-10 pb-7 rounded-[1px] text-center">
               {/* Brand Typography Wordmark */}
               <div className="mb-7 flex flex-col items-center">
                 <div className="flex items-center gap-2 mb-1">
@@ -339,8 +253,7 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
               </span>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
 
       {/* Instagram-style Minimalist Footer */}
       <footer className="w-full max-w-[850px] mx-auto pt-6 text-center text-[11px] text-[#737373] space-y-2.5 select-none">
