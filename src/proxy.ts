@@ -15,7 +15,7 @@ function getRateCategory(pathname: string): keyof typeof RATE_LIMITS {
   return "default";
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Only protect /api/* endpoints
