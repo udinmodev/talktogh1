@@ -1,26 +1,51 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg-canvas: #f8fafc;
+    --bg-surface: #ffffff;
+    --border-subtle: #e2e8f0;
+    --text-main: #0f172a;
+    --text-muted: #64748b;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Flat Clean Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Clean Flat Canvas */
+.flat-canvas {
+  background-color: #f8fafc;
+}
+
+/* Privacy Blur Shield */
+.privacy-blur {
+  filter: blur(18px) grayscale(30%);
+  pointer-events: none;
+  user-select: none;
+  transition: filter 0.2s ease;
+}
+
+/* Subtle Anti-Leak Watermark */
+.security-watermark-light {
+  background-image: repeating-linear-gradient(
+    -35deg,
+    rgba(15, 23, 42, 0.02),
+    rgba(15, 23, 42, 0.02) 90px,
+    transparent 90px,
+    transparent 180px
+  );
 }
