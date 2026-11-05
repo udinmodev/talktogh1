@@ -20,35 +20,8 @@ const STORAGE_USERS_KEY = "wechat_auth_users_v2";
 const STORAGE_CURRENT_USER_KEY = "wechat_current_auth_user_v2";
 const STORAGE_SESSION_UNLOCKED_KEY = "wechat_session_unlocked_v2";
 
-// Built-in default user accounts for instant frictionless testing
-const DEFAULT_AUTH_USERS: Record<string, AuthUser & { passwordHash: string }> = {
-  alice: {
-    id: "alice",
-    username: "alice",
-    name: "Alice Vance",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
-    role: "owner",
-    hasPin: true,
-    pin: "1234",
-    biometricEnabled: true,
-    isSecuritySetupComplete: true,
-    passwordHash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918", // admin123
-    createdAt: Date.now(),
-  },
-  bob: {
-    id: "bob",
-    username: "bob",
-    name: "Bob Mercer",
-    avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80",
-    role: "contact",
-    hasPin: true,
-    pin: "1234",
-    biometricEnabled: true,
-    isSecuritySetupComplete: true,
-    passwordHash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918", // admin123
-    createdAt: Date.now(),
-  },
-};
+// Real user accounts store (Zero fake users)
+const DEFAULT_AUTH_USERS: Record<string, AuthUser & { passwordHash: string }> = {};
 
 export async function hashString(str: string): Promise<string> {
   const enc = new TextEncoder().encode(str + "_wechat_salt_v2");
@@ -64,14 +37,11 @@ function loadAllUsers(): Record<string, AuthUser & { passwordHash: string }> {
     const raw = localStorage.getItem(STORAGE_USERS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      const merged = { ...DEFAULT_AUTH_USERS, ...parsed };
-      if (merged.alice && !merged.alice.pin) {
-        merged.alice = { ...merged.alice, pin: "1234", hasPin: true, isSecuritySetupComplete: true, biometricEnabled: true };
-      }
-      if (merged.bob && !merged.bob.pin) {
-        merged.bob = { ...merged.bob, pin: "1234", hasPin: true, isSecuritySetupComplete: true, biometricEnabled: true };
-      }
-      return merged;
+      delete parsed.alice;
+      delete parsed.bob;
+      delete parsed.elena;
+      delete parsed.marcus;
+      return parsed;
     }
   } catch {}
   return DEFAULT_AUTH_USERS;

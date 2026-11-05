@@ -323,11 +323,7 @@ export function ChatArea({
         {messages.length === 0 && (
           <div className="py-12 px-4 flex flex-col items-center justify-center text-center max-w-md mx-auto animate-in fade-in zoom-in-95 duration-200">
             <div className="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center mb-3">
-              {contactUser.isPublicChannel ? (
-                <Globe className="h-8 w-8 text-blue-500" />
-              ) : (
-                <ShieldCheck className="h-8 w-8 text-emerald-500" />
-              )}
+              <ShieldCheck className="h-8 w-8 text-emerald-500" />
             </div>
 
             <h3 className="text-base font-bold text-slate-900 mb-1">
@@ -335,19 +331,17 @@ export function ChatArea({
             </h3>
 
             <p className="text-xs font-mono text-slate-500 mb-2">
-              {contactUser.isPublicChannel ? contactUser.phone : `@${contactUser.id}`}
+              @{contactUser.id}
             </p>
 
             <p className="text-xs text-slate-500 leading-relaxed mb-6">
-              {contactUser.isPublicChannel
-                ? contactUser.about
-                : `Direct confidential conversation with @${contactUser.id}. Messages are zero-knowledge encrypted and secured with AES-256 wire cryptography.`}
+              Direct confidential conversation with @{contactUser.id}. Messages are zero-knowledge encrypted and secured with AES-256 wire cryptography.
             </p>
 
-            {/* 7 Message Types Quick Action Starters */}
+            {/* Secure Message Starters */}
             <div className="w-full bg-white border border-slate-200 rounded-2xl p-3 text-left">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                Available Public Chat Features (7 Types)
+                Send Encrypted Message
               </span>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs">
                 <button

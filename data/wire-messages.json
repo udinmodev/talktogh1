@@ -362,5 +362,31 @@
     "securityType": "standard",
     "mediaType": null,
     "reactions": {}
+  },
+  {
+    "id": "msg-1793857250789-h7pnd",
+    "senderId": "vijaysinghadv73@gmail.com",
+    "recipientId": "srgv@gmail.com",
+    "encryptedPayload": {
+      "iv": "c5wfHMo6AmWr1Dqa",
+      "keyEpoch": 1,
+      "senderId": "vijaysinghadv73@gmail.com",
+      "aadDigest": "D65B914CBDF2329E",
+      "algorithm": "AES-256-GCM (HKDF-SHA256)",
+      "timestamp": 1793857250789,
+      "ciphertext": "FNFsDE4Ka8xE5IG4HXd0UDQoAAxirpRDSDzk2IHBrd7bWmomrNLgkdxSvHn0hAhispEhSLtDOHQA1Ox4ABdIC0i9MWxP",
+      "recipientId": "srgv@gmail.com",
+      "integrityStatus": "verified"
+    },
+    "timestamp": 1793857250789,
+    "status": "delivered",
+    "disappearingDuration": 3600,
+    "expiresAt": 1793860850789,
+    "viewOnce": false,
+    "isBurned": false,
+    "isPinned": false,
+    "securityType": "disappearing",
+    "mediaType": null,
+    "reactions": {}
   }
 ]

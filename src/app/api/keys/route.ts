@@ -20,20 +20,7 @@ declare global {
 }
 
 if (!global.__WECHAT_KEY_REGISTRY__) {
-  global.__WECHAT_KEY_REGISTRY__ = {
-    alice: {
-      userId: "alice",
-      fingerprint: "A9F438B2C19E77A0",
-      keyRotationVersion: 1,
-      lastSeen: Date.now(),
-    },
-    bob: {
-      userId: "bob",
-      fingerprint: "E730D8192BF04C61",
-      keyRotationVersion: 1,
-      lastSeen: Date.now(),
-    },
-  };
+  global.__WECHAT_KEY_REGISTRY__ = {};
 }
 
 const getRegistry = () => global.__WECHAT_KEY_REGISTRY__!;

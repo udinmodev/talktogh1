@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { User, Message, SecuritySettings, LinkMetadata, DEFAULT_SETTINGS, SEVEN_PUBLIC_CHATS } from "@/types/chat";
+import { User, Message, SecuritySettings, LinkMetadata, DEFAULT_SETTINGS } from "@/types/chat";
 import { extractUrls, getClientLinkMetadata } from "@/components/chat/LinkPreviewCard";
 import { soundManager } from "@/lib/sound";
 import {
@@ -40,12 +40,12 @@ export default function SecureChatApp() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [isAuthLoaded, setIsAuthLoaded] = useState(false);
 
-  // Dynamic public channels and registered users directory
-  const [contacts, setContacts] = useState<User[]>(SEVEN_PUBLIC_CHATS);
+  // Dynamic real registered users directory
+  const [contacts, setContacts] = useState<User[]>([]);
 
   // Current active user identity and selected chat ID
-  const [currentUserId, setCurrentUserId] = useState<string>("alice");
-  const [selectedContactId, setSelectedContactId] = useState<string>("public-general");
+  const [currentUserId, setCurrentUserId] = useState<string>("");
+  const [selectedContactId, setSelectedContactId] = useState<string>("");
   const [mobileView, setMobileView] = useState<"sidebar" | "chat" | "settings">("chat");
 
   // Load auth state on client mount
@@ -130,27 +130,38 @@ export default function SecureChatApp() {
   const [isPeerTyping, setIsPeerTyping] = useState<boolean>(false);
 
   const currentUser: User = {
-    id: authUser ? authUser.username : (currentUserId || "alice"),
-    name: authUser ? authUser.name : "Alice Vance",
+    id: authUser ? authUser.username : (currentUserId || "user"),
+    name: authUser ? authUser.name : "User",
     role: authUser?.role || "owner",
     avatar: authUser?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(authUser?.name || "User")}`,
-    phone: `@${authUser ? authUser.username : "alice"}`,
+    phone: `@${authUser ? authUser.username : "user"}`,
     about: "Using confidential E2EE messenger.",
-    publicKeyFingerprint: (authUser?.id || "alice").length >= 8 ? (authUser?.id || "alice").substring(0, 8).toUpperCase() + "7EFE2C" : "A9F438B2C19E77A0",
+    publicKeyFingerprint: (authUser?.id || "user").length >= 8 ? (authUser?.id || "user").substring(0, 8).toUpperCase() + "7EFE2C" : "7EFE2C6DCC10DA73",
     isOnline: true,
   };
 
   const contactUser: User =
     contacts.find((c) => c.id === selectedContactId) ||
     contacts.find((c) => c.id !== currentUser.id) ||
-    SEVEN_PUBLIC_CHATS[0];
+    contacts[0] || {
+      id: "none",
+      name: "Select a Contact",
+      role: "contact",
+      avatar: "https://api.dicebear.com/7.x/initials/svg?seed=None",
+      phone: "",
+      about: "No user selected.",
+      publicKeyFingerprint: "7EFE2C6DCC10DA73",
+      isOnline: false,
+    };
 
   // Register identity with WebSocket relay server
   useEffect(() => {
-    secureSocket.registerUser(currentUser.id);
+    if (currentUser.id && currentUser.id !== "user") {
+      secureSocket.registerUser(currentUser.id);
+    }
   }, [currentUser.id]);
 
-  // Load real registered user accounts from Supabase and merge with 7 public channels
+  // Load real registered user accounts from Supabase (Zero fake chats, zero mock channels)
   const loadLiveContacts = useCallback(async (myId: string) => {
     try {
       const res = await fetch("/api/users");
@@ -169,10 +180,19 @@ export default function SecureChatApp() {
               publicKeyFingerprint: u.publicKeyFingerprint || "7EFE2C6DCC10DA73",
               isOnline: true,
               lastSeen: "online",
-              isPublicChannel: false,
             }));
 
-          setContacts([...SEVEN_PUBLIC_CHATS, ...registeredUsers]);
+          setContacts(registeredUsers);
+          if (registeredUsers.length > 0) {
+            setSelectedContactId((prev) => {
+              if (!prev || prev === "public-general" || !registeredUsers.some((u) => u.id === prev)) {
+                return registeredUsers[0].id;
+              }
+              return prev;
+            });
+          }
+        } else {
+          setContacts([]);
         }
       }
     } catch (e) {
@@ -181,7 +201,9 @@ export default function SecureChatApp() {
   }, []);
 
   useEffect(() => {
-    loadLiveContacts(currentUser.id);
+    if (currentUser.id) {
+      loadLiveContacts(currentUser.id);
+    }
   }, [currentUser.id, loadLiveContacts]);
 
   // Dynamically derive shared E2EE session key for the currently selected chat
@@ -190,6 +212,7 @@ export default function SecureChatApp() {
 
     async function updateChatCrypto() {
       try {
+        if (!contactUser || contactUser.id === "none") return;
         const partnerId = contactUser.id;
         const derivedKey = await getPairSessionKey(currentUser.id, partnerId);
         const code = await getPairSafetyNumber(currentUser.id, partnerId);
@@ -598,13 +621,8 @@ export default function SecureChatApp() {
   const handleRotateKey = async () => {
     try {
       const nextVersion = settings.keyRotationVersion + 1;
-      const newAlice = await generateEcdhKeyPair();
-      const newBob = await generateEcdhKeyPair();
-      const newSessionKey = await deriveSessionKey(
-        newAlice.keyPair.privateKey,
-        newBob.keyPair.publicKey,
-        nextVersion
-      );
+      await rotateStoredIdentityKey(currentUser.id);
+      const newSessionKey = await getPairSessionKey(currentUser.id, contactUser.id);
       setSessionKey(newSessionKey);
 
       handleUpdateSettings({
@@ -685,9 +703,9 @@ export default function SecureChatApp() {
     setIsAppLocked(true);
   };
 
-  // Switch identity
+  // Switch identity / logout
   const handleSwitchUser = () => {
-    setCurrentUserId((prev) => (prev === "alice" ? "bob" : "alice"));
+    handleLogout();
   };
 
   const handleTyping = (isTyping: boolean) => {
@@ -818,15 +836,11 @@ export default function SecureChatApp() {
           <ChatArea
             currentUser={currentUser}
             contactUser={contactUser}
-            messages={messages.filter((m) => {
-              if (contactUser.isPublicChannel) {
-                return m.recipientId === contactUser.id;
-              }
-              return (
+            messages={messages.filter(
+              (m) =>
                 (m.senderId === contactUser.id && m.recipientId === currentUser.id) ||
                 (m.senderId === currentUser.id && m.recipientId === contactUser.id)
-              );
-            })}
+            )}
             settings={settings}
             onSendMessage={handleSendMessage}
             onOpenSafetyNumbers={() => setIsSafetyModalOpen(true)}
