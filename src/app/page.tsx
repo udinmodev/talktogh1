@@ -108,7 +108,7 @@ export default function SecureChatApp() {
     setAuthUser(user);
     setCurrentUserId(user.username);
     if (user.isSecuritySetupComplete) {
-      setIsAppLocked(!isSessionUnlocked());
+      setIsAppLocked(true);
     }
   };
 
@@ -826,6 +826,24 @@ export default function SecureChatApp() {
     );
   }
 
+  // 4. Two-Factor Authentication Gateway (Step 2: Biometrics or 4-digit PIN verification)
+  if (isAppLocked || !isSessionUnlocked()) {
+    return (
+      <AppLockScreen
+        correctPin={authUser?.pin || settings.appLockPin || "1234"}
+        userName={authUser?.name || authUser?.username || "User"}
+        biometricEnabled={authUser?.biometricEnabled ?? true}
+        biometricCredentialId={authUser?.biometricCredentialId}
+        onUnlock={() => {
+          setSessionUnlocked(true);
+          setIsAppLocked(false);
+        }}
+        onPanicBurn={handleEmergencyWipe}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-50 flex flex-col font-sans text-slate-900">
       {/* Main App Container - Edge to Edge Professional Interface */}
@@ -935,22 +953,6 @@ export default function SecureChatApp() {
             Click to Restore View
           </span>
         </div>
-      )}
-
-      {/* App PIN / Biometric Lock Screen */}
-      {isAppLocked && (
-        <AppLockScreen
-          correctPin={authUser?.pin || settings.appLockPin || "1234"}
-          userName={authUser?.name || authUser?.username || "User"}
-          biometricEnabled={authUser?.biometricEnabled ?? true}
-          biometricCredentialId={authUser?.biometricCredentialId}
-          onUnlock={() => {
-            setSessionUnlocked(true);
-            setIsAppLocked(false);
-          }}
-          onPanicBurn={handleEmergencyWipe}
-          onLogout={handleLogout}
-        />
       )}
 
       {/* Safety Number Modal (60-digit verification + QR code) */}

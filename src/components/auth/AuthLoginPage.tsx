@@ -55,20 +55,6 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
     }
   };
 
-  const handleQuickLogin = async (quickUsername: string) => {
-    setUsername(quickUsername);
-    setPassword("admin123");
-    setError(null);
-    setLoading(true);
-    const res = await loginUser(quickUsername, "admin123");
-    setLoading(false);
-    if (res.success && res.user) {
-      onLoginSuccess(res.user);
-    } else {
-      setError(res.error || "Quick login failed");
-    }
-  };
-
   const isFormValid =
     mode === "login"
       ? username.trim().length > 0 && password.length >= 4
@@ -170,40 +156,6 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
                   </button>
                 </div>
               </form>
-
-              {/* Instagram "OR" Line Divider */}
-              <div className="flex items-center my-4">
-                <div className="flex-1 h-[1px] bg-[#dbdbdb]" />
-                <span className="px-4 text-[12px] font-semibold text-[#737373] uppercase tracking-wider">
-                  OR
-                </span>
-                <div className="flex-1 h-[1px] bg-[#dbdbdb]" />
-              </div>
-
-              {/* Quick Login Options */}
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin("alice")}
-                  className="w-full flex items-center justify-center gap-2 text-xs font-semibold text-[#385185] hover:text-[#00376b] py-1 cursor-pointer transition-colors"
-                >
-                  <div className="w-5 h-5 rounded-full bg-[#07c160] text-white text-[10px] flex items-center justify-center font-bold">
-                    A
-                  </div>
-                  <span>Log in as Alice Vance</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin("bob")}
-                  className="w-full flex items-center justify-center gap-2 text-xs font-semibold text-[#385185] hover:text-[#00376b] py-1 cursor-pointer transition-colors"
-                >
-                  <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] flex items-center justify-center font-bold">
-                    B
-                  </div>
-                  <span>Log in as Bob Mercer</span>
-                </button>
-              </div>
 
               {/* Security Policy Reminder */}
               <div className="mt-4 pt-3 border-t border-[#f0f0f0]">

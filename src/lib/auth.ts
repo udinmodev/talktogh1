@@ -28,10 +28,10 @@ const DEFAULT_AUTH_USERS: Record<string, AuthUser & { passwordHash: string }> = 
     name: "Alice Vance",
     avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
     role: "owner",
-    hasPin: false,
-    pin: "",
-    biometricEnabled: false,
-    isSecuritySetupComplete: false,
+    hasPin: true,
+    pin: "1234",
+    biometricEnabled: true,
+    isSecuritySetupComplete: true,
     passwordHash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918", // admin123
     createdAt: Date.now(),
   },
@@ -41,10 +41,10 @@ const DEFAULT_AUTH_USERS: Record<string, AuthUser & { passwordHash: string }> = 
     name: "Bob Mercer",
     avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80",
     role: "contact",
-    hasPin: false,
-    pin: "",
-    biometricEnabled: false,
-    isSecuritySetupComplete: false,
+    hasPin: true,
+    pin: "1234",
+    biometricEnabled: true,
+    isSecuritySetupComplete: true,
     passwordHash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918", // admin123
     createdAt: Date.now(),
   },
@@ -63,7 +63,15 @@ function loadAllUsers(): Record<string, AuthUser & { passwordHash: string }> {
   try {
     const raw = localStorage.getItem(STORAGE_USERS_KEY);
     if (raw) {
-      return { ...DEFAULT_AUTH_USERS, ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw);
+      const merged = { ...DEFAULT_AUTH_USERS, ...parsed };
+      if (merged.alice && !merged.alice.pin) {
+        merged.alice = { ...merged.alice, pin: "1234", hasPin: true, isSecuritySetupComplete: true, biometricEnabled: true };
+      }
+      if (merged.bob && !merged.bob.pin) {
+        merged.bob = { ...merged.bob, pin: "1234", hasPin: true, isSecuritySetupComplete: true, biometricEnabled: true };
+      }
+      return merged;
     }
   } catch {}
   return DEFAULT_AUTH_USERS;
@@ -134,6 +142,8 @@ export async function loginUser(
 
   // Set as current user in local storage
   localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(existing));
+  // Clear session unlocked state so 2nd-step authentication is mandatory
+  sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
 
   return { success: true, user: existing };
 }

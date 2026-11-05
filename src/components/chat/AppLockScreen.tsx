@@ -74,18 +74,26 @@ export function AppLockScreen({
       <div className="w-full max-w-[350px]">
         {/* Flat Instagram-style Sharp Box */}
         <div className="bg-white border border-[#dbdbdb] px-8 py-9 rounded-[1px] flex flex-col items-center">
-          {/* Lock Icon */}
-          <div className="w-14 h-14 rounded-full border border-[#dbdbdb] bg-[#fafafa] flex items-center justify-center text-slate-800 mb-3">
-            <Lock className="h-6 w-6 text-slate-700" />
+          {/* Header Brand */}
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-md bg-slate-900 text-white flex items-center justify-center">
+              <Shield className="h-3.5 w-3.5 text-emerald-400" />
+            </div>
+            <span className="font-mono font-bold tracking-tight text-slate-900 text-base">
+              WECHAT SECURITY
+            </span>
           </div>
 
           {/* Title & User Greeting */}
           <div className="text-center space-y-1 mb-4">
+            <div className="inline-block px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
+              Step 2 · 2nd Authentication
+            </div>
             <h2 className="text-sm font-bold tracking-tight text-slate-900">
               Welcome back, {userName}
             </h2>
             <p className="text-[11.5px] text-[#737373]">
-              Enter your passcode or scan biometrics to unlock
+              Authenticate with Biometrics or enter your 4-digit PIN
             </p>
           </div>
 
