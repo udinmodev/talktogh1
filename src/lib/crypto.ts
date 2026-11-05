@@ -8,6 +8,8 @@
  * - Ephemeral Key Rotation & Forward Secrecy Ratchet
  */
 
+import { getInternalApiHeaders } from "./api-security";
+
 export interface EncryptedPayload {
   ciphertext: string;       // Base64 encoded ciphertext including 128-bit GCM auth tag
   iv: string;               // Base64 encoded 96-bit (12-byte) CSPRNG initialization vector
@@ -226,6 +228,8 @@ function buildAadBuffer(senderId: string, recipientId: string, timestamp: number
  */
 export interface DecryptedMessageContent {
   text: string;
+  mediaType?: "image" | "voice" | "doc";
+  mediaUrl?: string; // Client-side decrypted object/data URL or secure reference
   linkMetadata?: Array<{
     url: string;
     title?: string;
@@ -237,7 +241,7 @@ export interface DecryptedMessageContent {
 }
 
 /**
- * Encrypt arbitrary message data (text + link metadata) into AES-256-GCM ciphertext.
+ * Encrypt arbitrary message data (text + link metadata + media) into AES-256-GCM ciphertext.
  * Ensures zero plaintext leaks onto server or network transport.
  */
 export async function encryptMessageContent(
@@ -331,6 +335,8 @@ export async function decryptMessageContent(
     if (parsed && typeof parsed.text === "string") {
       return {
         text: parsed.text,
+        mediaType: parsed.mediaType,
+        mediaUrl: parsed.mediaUrl,
         linkMetadata: parsed.linkMetadata,
       };
     }
@@ -384,20 +390,68 @@ export async function generateSafetyNumber(pubKeyA: string, pubKeyB: string): Pr
 }
 
 /**
- * Deterministically derive shared session key for any pair of user identities / public channels
+ * Deterministically derive shared session key for any pair of user identities.
+ * Integrates Server-Side Cryptographic Key Generation with client-side fallback.
  */
 export async function getPairSessionKey(myUserId: string, peerUserId: string): Promise<CryptoKey> {
+  const cleanA = String(myUserId || "").split("@")[0].toLowerCase();
+  const cleanB = String(peerUserId || "").split("@")[0].toLowerCase();
+
+  // 1. Server-Side Key Generation & Derivation
+  if (typeof window !== "undefined" && typeof navigator !== "undefined" && navigator.onLine) {
+    try {
+      const res = await fetch(`/api/keys/derive?userA=${encodeURIComponent(cleanA)}&userB=${encodeURIComponent(cleanB)}`, {
+        headers: getInternalApiHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.sessionKeyBase64) {
+          const rawKeyBuf = base64ToBuffer(data.sessionKeyBase64);
+          return await window.crypto.subtle.importKey(
+            "raw",
+            rawKeyBuf,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["encrypt", "decrypt"]
+          );
+        }
+      }
+    } catch {
+      // Offline fallback
+    }
+  }
+
+  // 2. Client-side fallback derivation
   const myKp = await getOrCreateIdentityKeyPair(myUserId);
   const peerKp = await getOrCreateIdentityKeyPair(peerUserId);
   return await deriveSessionKey(myKp.keyPair.privateKey, peerKp.keyPair.publicKey);
 }
 
 /**
- * Deterministically generate 60-digit safety code for any pair of user identities
+ * Deterministically generate 60-digit safety code for any pair of user identities.
+ * Uses Server-Side Verified Safety Code generation with client fallback.
  */
 export async function getPairSafetyNumber(myUserId: string, peerUserId: string): Promise<string> {
+  const cleanA = String(myUserId || "").split("@")[0].toLowerCase();
+  const cleanB = String(peerUserId || "").split("@")[0].toLowerCase();
+
+  if (typeof window !== "undefined" && typeof navigator !== "undefined" && navigator.onLine) {
+    try {
+      const res = await fetch(`/api/keys/derive?userA=${encodeURIComponent(cleanA)}&userB=${encodeURIComponent(cleanB)}`, {
+        headers: getInternalApiHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.safetyNumber) {
+          return data.safetyNumber;
+        }
+      }
+    } catch {}
+  }
+
   const myKp = await getOrCreateIdentityKeyPair(myUserId);
   const peerKp = await getOrCreateIdentityKeyPair(peerUserId);
   return await generateSafetyNumber(myKp.data.fingerprint, peerKp.data.fingerprint);
 }
+
 

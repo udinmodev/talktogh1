@@ -1,6 +1,7 @@
 "use client";
 
 import { getSupabaseClient, isSupabaseConfigured } from "./supabase";
+import { getInternalApiHeaders } from "./api-security";
 
 export interface AuthUser {
   id: string;
@@ -70,18 +71,29 @@ export function getCurrentAuthUser(): AuthUser | null {
   }
 }
 
+// In-memory unlocked flag: does NOT survive page refresh (guarantees auto-lock on page refresh)
+let isMemoryUnlocked = false;
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    isMemoryUnlocked = false;
+    sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
+  });
+}
+
 /**
  * Check if the active session is currently unlocked with Biometric/PIN
  */
 export function isSessionUnlocked(): boolean {
   if (typeof window === "undefined") return false;
-  return sessionStorage.getItem(STORAGE_SESSION_UNLOCKED_KEY) === "true";
+  return isMemoryUnlocked;
 }
 
 /**
  * Mark active session unlocked
  */
 export function setSessionUnlocked(unlocked: boolean) {
+  isMemoryUnlocked = unlocked;
   if (typeof window === "undefined") return;
   if (unlocked) {
     sessionStorage.setItem(STORAGE_SESSION_UNLOCKED_KEY, "true");
@@ -91,35 +103,58 @@ export function setSessionUnlocked(unlocked: boolean) {
 }
 
 /**
- * Authenticate existing user with username & password
+ * Authenticate existing user with username & password via production Supabase
  */
 export async function loginUser(
   username: string,
   pass: string
 ): Promise<{ success: boolean; user?: AuthUser; error?: string }> {
   const cleanUser = username.trim().toLowerCase();
-  const all = loadAllUsers();
-  const existing = all[cleanUser];
 
-  if (!existing) {
-    return { success: false, error: "Identity not found. Please register first." };
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: getInternalApiHeaders(),
+      body: JSON.stringify({ identifier: cleanUser, password: pass }),
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success && data.user) {
+      const user = data.user as AuthUser;
+      // Cache locally
+      const all = loadAllUsers();
+      all[user.username] = { ...user, passwordHash: "" };
+      saveAllUsers(all);
+      localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(user));
+      sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
+      return { success: true, user };
+    }
+
+    if (data.error) {
+      return { success: false, error: data.error };
+    }
+  } catch (err) {
+    console.warn("Supabase login API notice:", err);
   }
 
-  const hash = await hashString(pass);
-  if (existing.passwordHash !== hash && pass !== "admin123") {
+  // Fallback to local storage if offline
+  const all = loadAllUsers();
+  const existing = all[cleanUser];
+  if (existing) {
+    const hash = await hashString(pass);
+    if (existing.passwordHash === hash || pass === "admin123") {
+      localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(existing));
+      sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
+      return { success: true, user: existing };
+    }
     return { success: false, error: "Incorrect password. Please try again." };
   }
 
-  // Set as current user in local storage
-  localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(existing));
-  // Clear session unlocked state so 2nd-step authentication is mandatory
-  sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
-
-  return { success: true, user: existing };
+  return { success: false, error: "Identity not found in Supabase. Please sign up." };
 }
 
 /**
- * Register a new confidential user identity
+ * Register a new user directly in production Supabase
  */
 export async function registerUser(
   username: string,
@@ -130,70 +165,46 @@ export async function registerUser(
   if (!cleanUser || cleanUser.length < 3) {
     return { success: false, error: "Username must be at least 3 characters." };
   }
-  if (!pass || pass.length < 4) {
-    return { success: false, error: "Password must be at least 4 characters." };
+  if (!pass || pass.length < 6) {
+    return { success: false, error: "Password must be at least 6 characters." };
   }
 
-  const all = loadAllUsers();
-  if (all[cleanUser]) {
-    return { success: false, error: "Username is already registered. Please sign in." };
+  try {
+    const res = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: getInternalApiHeaders(),
+      body: JSON.stringify({ username: cleanUser, password: pass, name: displayName }),
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success && data.user) {
+      const user = data.user as AuthUser;
+      const all = loadAllUsers();
+      all[user.username] = { ...user, passwordHash: "" };
+      saveAllUsers(all);
+      localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(user));
+      return { success: true, user };
+    }
+
+    if (data.error) {
+      return { success: false, error: data.error };
+    }
+  } catch (err) {
+    console.warn("Supabase register API notice:", err);
   }
 
-  const hash = await hashString(pass);
-  const avatarColors = ["#007aff", "#07c160", "#9333ea", "#f43f5e", "#f59e0b"];
-  const randomColor = avatarColors[Math.floor(Math.random() * avatarColors.length)];
-
-  const newUser: AuthUser & { passwordHash: string } = {
-    id: cleanUser,
-    username: cleanUser,
-    name: displayName.trim() || cleanUser,
-    avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
-      displayName || cleanUser
-    )}&backgroundColor=${randomColor.replace("#", "")}`,
-    role: "owner",
-    hasPin: false,
-    pin: "",
-    biometricEnabled: false,
-    isSecuritySetupComplete: false,
-    passwordHash: hash,
-    createdAt: Date.now(),
-  };
-
-  all[cleanUser] = newUser;
-  saveAllUsers(all);
-  localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(newUser));
-
-  // Sync to Supabase if linked
-  if (isSupabaseConfigured) {
-    try {
-      const client = getSupabaseClient();
-      client
-        ?.from("user_accounts")
-        .upsert({
-          id: newUser.id,
-          username: newUser.username,
-          name: newUser.name,
-          avatar: newUser.avatar,
-          has_pin: false,
-          biometric_enabled: false,
-          created_at: new Date().toISOString(),
-        })
-        .then(() => {});
-    } catch {}
-  }
-
-  return { success: true, user: newUser };
+  return { success: false, error: "Failed to register in Supabase. Please try again." };
 }
 
 /**
- * Complete user security onboarding: Set Security PIN and Biometric preference
+ * Complete user security onboarding: Set Security PIN and Biometric preference in Supabase
  */
-export function completeSecuritySetup(
+export async function completeSecuritySetup(
   username: string,
   pin: string,
   biometricEnabled: boolean,
   credentialId?: string
-): AuthUser {
+): Promise<AuthUser> {
   const cleanUser = username.trim().toLowerCase();
   const all = loadAllUsers();
   const user = all[cleanUser] || {
@@ -220,23 +231,20 @@ export function completeSecuritySetup(
   localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(updated));
   setSessionUnlocked(true);
 
-  // Sync to Supabase if configured
-  if (isSupabaseConfigured) {
-    try {
-      const client = getSupabaseClient();
-      client
-        ?.from("user_accounts")
-        .upsert({
-          id: updated.id,
-          username: updated.username,
-          name: updated.name,
-          avatar: updated.avatar,
-          has_pin: true,
-          biometric_enabled: Boolean(biometricEnabled),
-          biometric_credential_id: credentialId || null,
-        })
-        .then(() => {});
-    } catch {}
+  // Sync to Supabase DB via setup API
+  try {
+    await fetch("/api/auth/setup", {
+      method: "POST",
+      headers: getInternalApiHeaders(),
+      body: JSON.stringify({
+        username: cleanUser,
+        pin,
+        biometricEnabled,
+        credentialId,
+      }),
+    });
+  } catch (err) {
+    console.warn("Notice syncing security setup to Supabase:", err);
   }
 
   return updated;

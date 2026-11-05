@@ -17,8 +17,14 @@ export type BroadcastAction =
   | { type: "KEY_ROTATION"; newVersion: number; senderId: string }
   | { type: "VIEW_ONCE_OPENED"; messageId: string }
   | { type: "TOGGLE_PIN"; messageId: string; isPinned: boolean }
+  | { type: "REACTION"; messageId: string; emoji: string; userId: string }
   | { type: "WIPE_ALL"; senderId: string }
-  | { type: "USER_PRESENCE"; userId: string; status: "online" | "offline" };
+  | { type: "USER_PRESENCE"; userId: string; status: "online" | "offline" }
+  | { type: "FETCH_MESSAGES"; userId: string }
+  | { type: "SYNC_MESSAGES"; messages: any[]; userId?: string }
+  | { type: "SAVE_SETTINGS"; userId: string; settings: any }
+  | { type: "SYNC_SETTINGS"; settings: any; userId?: string }
+  | { type: "SETTINGS_UPDATED"; userId: string; settings: any };
 
 type Listener = (action: BroadcastAction) => void;
 

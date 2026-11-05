@@ -29,7 +29,7 @@ interface SecurityCommandCenterProps {
   onUpdateSettings: (newSettings: Partial<SecuritySettings>) => void;
   onRotateKey: () => void;
   onOpenSafetyNumbers: () => void;
-  onEmergencyWipe: () => void;
+  onEmergencyWipe?: () => void;
   currentUserRole: "owner" | "contact";
 }
 
@@ -40,11 +40,9 @@ export function SecurityCommandCenter({
   onUpdateSettings,
   onRotateKey,
   onOpenSafetyNumbers,
-  onEmergencyWipe,
 }: SecurityCommandCenterProps) {
   const [activeTab, setActiveTab] = useState<"security" | "customization">("security");
   const [pinInput, setPinInput] = useState(settings.appLockPin || "1234");
-  const [showBurnConfirm, setShowBurnConfirm] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
   const [savedBadge, setSavedBadge] = useState(false);
 
@@ -63,20 +61,20 @@ export function SecurityCommandCenter({
   };
 
   const themeColors: { id: ThemeColor; name: string; hex: string; bgClass: string }[] = [
-    { id: "blue", name: "Classic Blue", hex: "#007aff", bgClass: "bg-[#007aff]" },
-    { id: "emerald", name: "WeChat Green", hex: "#07c160", bgClass: "bg-[#07c160]" },
-    { id: "slate", name: "Stealth Slate", hex: "#0f172a", bgClass: "bg-slate-900" },
-    { id: "purple", name: "Royal Purple", hex: "#9333ea", bgClass: "bg-purple-600" },
-    { id: "rose", name: "Crimson Rose", hex: "#f43f5e", bgClass: "bg-rose-500" },
-    { id: "amber", name: "Warm Amber", hex: "#f59e0b", bgClass: "bg-amber-500" },
+    { id: "emerald", name: "WhatsApp Emerald", hex: "#00a884", bgClass: "bg-[#00a884]" },
+    { id: "blue", name: "Messenger Blue", hex: "#0084ff", bgClass: "bg-[#0084ff]" },
+    { id: "slate", name: "Slate Noir", hex: "#111b21", bgClass: "bg-[#111b21]" },
+    { id: "purple", name: "Royal Purple", hex: "#7c3aed", bgClass: "bg-[#7c3aed]" },
+    { id: "rose", name: "Rose Crimson", hex: "#e11d48", bgClass: "bg-[#e11d48]" },
+    { id: "amber", name: "Warm Amber", hex: "#d97706", bgClass: "bg-[#d97706]" },
   ];
 
   const wallpapers: { id: ChatWallpaper; label: string; desc: string }[] = [
-    { id: "default", label: "Clean Flat", desc: "Minimal light gray" },
-    { id: "dots", label: "Subtle Dots", desc: "Fine geometric dots" },
-    { id: "grid", label: "Blueprint Grid", desc: "Engineered grid" },
-    { id: "warm", label: "Warm Ivory", desc: "Soft parchment tone" },
-    { id: "dark", label: "Dark Slate", desc: "High contrast dark" },
+    { id: "default", label: "Classic Warm", desc: "Clean WhatsApp linen" },
+    { id: "dots", label: "Fine Dots", desc: "Subtle pattern matrix" },
+    { id: "grid", label: "Blueprint Grid", desc: "Light architectural grid" },
+    { id: "warm", label: "Cream Pearl", desc: "Gentle ivory warm" },
+    { id: "dark", label: "Contrast Dark", desc: "Deep dark canvas" },
   ];
 
   const fontSizes: { id: FontSize; label: string; preview: string }[] = [
@@ -88,7 +86,7 @@ export function SecurityCommandCenter({
   const bubbleStyles: { id: BubbleStyle; label: string; exampleClass: string }[] = [
     { id: "modern", label: "Modern Curve", exampleClass: "rounded-2xl rounded-br-sm" },
     { id: "pill", label: "Smooth Pill", exampleClass: "rounded-full" },
-    { id: "compact", label: "Crisp Flat", exampleClass: "rounded-md" },
+    { id: "compact", label: "Crisp Flat", exampleClass: "rounded-lg" },
   ];
 
   const timerOptions = [
@@ -104,35 +102,35 @@ export function SecurityCommandCenter({
     <Dialog
       isOpen={isOpen}
       onClose={onClose}
-      title="Settings & Privacy"
-      description="Manage end-to-end security, appearance themes, and chat preferences."
+      title="Security & Settings"
+      description="Manage Zero-Knowledge wire cryptography and chat preferences."
       className="max-w-lg"
     >
-      <div className="space-y-4 pt-1 text-slate-800">
+      <div className="space-y-4 pt-1 text-[#050505]">
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+        <div className="flex items-center gap-1 p-1 bg-[#f0f2f5] rounded-xl border border-[#e4e6eb]">
           <button
             type="button"
             onClick={() => setActiveTab("security")}
-            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            className={`flex-1 py-1.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               activeTab === "security"
-                ? "bg-white text-slate-900 shadow-xs border border-slate-200/60"
-                : "text-slate-600 hover:text-slate-900"
+                ? "bg-white text-[#050505] shadow-xs"
+                : "text-[#65676b] hover:text-[#050505]"
             }`}
           >
-            <Shield className="h-3.5 w-3.5 text-emerald-600" />
+            <Shield className="h-3.5 w-3.5 text-[#0084ff]" />
             <span>Privacy & Security</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("customization")}
-            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            className={`flex-1 py-1.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               activeTab === "customization"
-                ? "bg-white text-slate-900 shadow-xs border border-slate-200/60"
-                : "text-slate-600 hover:text-slate-900"
+                ? "bg-white text-[#050505] shadow-xs"
+                : "text-[#65676b] hover:text-[#050505]"
             }`}
           >
-            <Palette className="h-3.5 w-3.5 text-blue-600" />
+            <Palette className="h-3.5 w-3.5 text-[#0084ff]" />
             <span>Customization</span>
           </button>
         </div>
@@ -141,35 +139,35 @@ export function SecurityCommandCenter({
         {activeTab === "security" && (
           <div className="space-y-3.5 animate-in fade-in duration-150">
             {/* Encryption Status Card */}
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+            <div className="p-3.5 rounded-xl bg-[#f0f2f5] border border-[#e4e6eb] flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#e7f3ff] border border-[#0084ff]/20 flex items-center justify-center text-[#0084ff] shrink-0">
                 <Shield className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm text-slate-900">End-to-End Encrypted</span>
-                  <span className="text-[10px] font-medium bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full shrink-0">
+                  <span className="font-semibold text-sm text-[#050505]">End-to-End Encrypted</span>
+                  <span className="text-[10px] font-medium bg-[#e7f3ff] text-[#0084ff] px-2 py-0.5 rounded-full shrink-0 border border-[#0084ff]/20">
                     Zero-Knowledge
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5 truncate">
+                <p className="text-xs text-[#65676b] mt-0.5 truncate">
                   ECDH P-256 + HKDF-SHA256 + AES-256-GCM &bull; Key Epoch #{settings.keyRotationVersion}
                 </p>
               </div>
             </div>
 
             {/* Disappearing Messages */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+            <div className="bg-[#f0f2f5] p-3.5 rounded-xl border border-[#e4e6eb] space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <Timer className="h-4 w-4 text-slate-600" />
-                  <span className="font-semibold text-sm text-slate-900">Disappearing Messages</span>
+                  <Timer className="h-4 w-4 text-[#65676b]" />
+                  <span className="font-semibold text-sm text-[#050505]">Disappearing Messages</span>
                 </div>
-                <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full font-medium">
+                <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full font-medium">
                   {settings.disappearingTimer === 0 ? "Off" : `${settings.disappearingTimer}s`}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 leading-relaxed">
+              <p className="text-xs text-[#65676b] leading-relaxed">
                 Messages vaporize automatically after expiration with exact event-driven timers.
               </p>
               <div className="grid grid-cols-6 gap-1.5 pt-1">
@@ -180,8 +178,8 @@ export function SecurityCommandCenter({
                     onClick={() => triggerSavedFeedback({ disappearingTimer: opt.value })}
                     className={`py-1.5 rounded-lg text-xs font-medium border text-center transition-all cursor-pointer ${
                       settings.disappearingTimer === opt.value
-                        ? "bg-slate-900 text-white border-slate-900"
-                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                        ? "bg-[#0084ff] text-white border-[#0084ff] font-semibold"
+                        : "bg-white text-[#65676b] border-[#e4e6eb] hover:text-[#050505] hover:bg-[#e4e6eb]"
                     }`}
                   >
                     {opt.label}
@@ -191,13 +189,13 @@ export function SecurityCommandCenter({
             </div>
 
             {/* Inactivity Screen Lock */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+            <div className="bg-[#f0f2f5] p-3.5 rounded-xl border border-[#e4e6eb] space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <Lock className="h-4 w-4 text-slate-600" />
+                  <Lock className="h-4 w-4 text-[#65676b]" />
                   <div>
-                    <span className="font-semibold text-sm text-slate-900 block">App Passcode Lock</span>
-                    <span className="text-xs text-slate-500">Locks automatically upon inactivity</span>
+                    <span className="font-semibold text-sm text-[#050505] block">App Passcode Lock</span>
+                    <span className="text-xs text-[#65676b]">Locks automatically upon inactivity</span>
                   </div>
                 </div>
                 <Switch
@@ -207,8 +205,8 @@ export function SecurityCommandCenter({
               </div>
 
               {settings.appLockEnabled && (
-                <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
-                  <span className="text-xs text-slate-700 font-medium">4-Digit Security PIN</span>
+                <div className="pt-2 border-t border-[#e4e6eb] flex items-center justify-between">
+                  <span className="text-xs text-[#65676b] font-medium">4-Digit Security PIN</span>
                   <input
                     type="password"
                     maxLength={4}
@@ -221,19 +219,19 @@ export function SecurityCommandCenter({
                       }
                     }}
                     placeholder="1234"
-                    className="w-20 px-2 py-1 text-center font-mono font-bold tracking-widest text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-slate-800"
+                    className="w-20 px-2 py-1 text-center font-mono font-bold tracking-widest text-sm bg-white border border-[#e4e6eb] rounded-lg text-[#050505] focus:outline-none focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff]"
                   />
                 </div>
               )}
             </div>
 
             {/* Privacy Curtain */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 flex items-center justify-between">
+            <div className="bg-[#f0f2f5] p-3.5 rounded-xl border border-[#e4e6eb] flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <EyeOff className="h-4 w-4 text-slate-600" />
+                <EyeOff className="h-4 w-4 text-[#65676b]" />
                 <div>
-                  <span className="font-semibold text-sm text-slate-900 block">Privacy Curtain</span>
-                  <span className="text-xs text-slate-500">Auto-blurs canvas on tab switch or window minimize</span>
+                  <span className="font-semibold text-sm text-[#050505] block">Privacy Curtain</span>
+                  <span className="text-xs text-[#65676b]">Auto-blurs canvas on tab switch or minimize</span>
                 </div>
               </div>
               <Switch
@@ -243,12 +241,12 @@ export function SecurityCommandCenter({
             </div>
 
             {/* Anti-Screenshot Watermark */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 flex items-center justify-between">
+            <div className="bg-[#f0f2f5] p-3.5 rounded-xl border border-[#e4e6eb] flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <Shield className="h-4 w-4 text-slate-600" />
+                <Shield className="h-4 w-4 text-[#65676b]" />
                 <div>
-                  <span className="font-semibold text-sm text-slate-900 block">Confidential Watermark</span>
-                  <span className="text-xs text-slate-500">Overlays identity patterns to prevent leaks</span>
+                  <span className="font-semibold text-sm text-[#050505] block">Confidential Watermark</span>
+                  <span className="text-xs text-[#65676b]">Overlays identity patterns to prevent screen leaks</span>
                 </div>
               </div>
               <Switch
@@ -263,9 +261,9 @@ export function SecurityCommandCenter({
                 variant="outline"
                 size="sm"
                 onClick={onOpenSafetyNumbers}
-                className="flex items-center justify-center gap-1.5 h-9 rounded-xl border-slate-300 text-xs font-semibold cursor-pointer"
+                className="flex items-center justify-center gap-1.5 h-10 rounded-xl border-[#e4e6eb] bg-white hover:bg-[#e4e6eb] text-xs font-semibold cursor-pointer text-[#0084ff]"
               >
-                <QrCode className="h-3.5 w-3.5" />
+                <QrCode className="h-3.5 w-3.5 text-[#0084ff]" />
                 <span>Safety Numbers</span>
               </Button>
 
@@ -274,50 +272,11 @@ export function SecurityCommandCenter({
                 size="sm"
                 onClick={handleRotate}
                 disabled={isRotating}
-                className="flex items-center justify-center gap-1.5 h-9 rounded-xl border-slate-300 text-xs font-semibold cursor-pointer"
+                className="flex items-center justify-center gap-1.5 h-10 rounded-xl border-[#e4e6eb] bg-white hover:bg-[#e4e6eb] text-xs font-semibold cursor-pointer text-[#050505]"
               >
                 <RotateCw className={`h-3.5 w-3.5 ${isRotating ? "animate-spin" : ""}`} />
                 <span>Rotate Keys</span>
               </Button>
-            </div>
-
-            {/* Emergency Wipe */}
-            <div className="pt-2 border-t border-slate-200">
-              {!showBurnConfirm ? (
-                <button
-                  type="button"
-                  onClick={() => setShowBurnConfirm(true)}
-                  className="w-full py-2 px-3 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Flame className="h-3.5 w-3.5" />
-                  <span>Emergency Wipe All Messages</span>
-                </button>
-              ) : (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-2">
-                  <p className="text-xs text-rose-700 font-semibold text-center">
-                    Permanently wipe all messages and keys from this device and server?
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowBurnConfirm(false)}
-                      className="flex-1 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-medium cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onEmergencyWipe();
-                        onClose();
-                      }}
-                      className="flex-1 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 cursor-pointer"
-                    >
-                      Confirm Wipe
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -326,26 +285,26 @@ export function SecurityCommandCenter({
         {activeTab === "customization" && (
           <div className="space-y-4 animate-in fade-in duration-150">
             {/* Theme Accent Color */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-2.5">
+            <div className="bg-[#f8fafc] p-3.5 rounded-xl border border-[#e2e8f0] space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-sm text-slate-900 flex items-center gap-2">
-                  <Palette className="h-4 w-4 text-slate-600" />
+                <span className="font-semibold text-sm text-[#111b21] flex items-center gap-2">
+                  <Palette className="h-4 w-4 text-[#667781]" />
                   Theme Accent Color
                 </span>
-                <span className="text-xs font-medium text-slate-500">
+                <span className="text-xs font-medium text-[#667781]">
                   {themeColors.find((c) => c.id === settings.themeColor)?.name}
                 </span>
               </div>
               <div className="grid grid-cols-6 gap-2 pt-1">
                 {themeColors.map((color) => {
-                  const isSelected = (settings.themeColor || "blue") === color.id;
+                  const isSelected = (settings.themeColor || "emerald") === color.id;
                   return (
                     <button
                       key={color.id}
                       type="button"
                       onClick={() => triggerSavedFeedback({ themeColor: color.id })}
                       className={`h-10 rounded-xl flex items-center justify-center transition-all cursor-pointer ${color.bgClass} ${
-                        isSelected ? "ring-3 ring-offset-2 ring-slate-800 scale-105" : "hover:opacity-90"
+                        isSelected ? "ring-2 ring-[#111b21] scale-105" : "hover:opacity-90"
                       }`}
                       title={color.name}
                     >
@@ -357,8 +316,8 @@ export function SecurityCommandCenter({
             </div>
 
             {/* Chat Wallpaper Canvas */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-2.5">
-              <span className="font-semibold text-sm text-slate-900 block">
+            <div className="bg-[#f0f2f5] p-3.5 rounded-xl border border-[#e4e6eb] space-y-2.5">
+              <span className="font-semibold text-sm text-[#050505] block">
                 Chat Canvas Wallpaper
               </span>
               <div className="grid grid-cols-3 gap-2">
@@ -371,12 +330,12 @@ export function SecurityCommandCenter({
                       onClick={() => triggerSavedFeedback({ chatWallpaper: wp.id })}
                       className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer ${
                         isSelected
-                          ? "bg-slate-900 text-white border-slate-900 ring-2 ring-slate-400"
-                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                          ? "bg-white text-[#050505] border-[#0084ff] shadow-xs ring-1 ring-[#0084ff]"
+                          : "bg-white text-[#65676b] border-[#e4e6eb] hover:text-[#050505] hover:bg-[#e4e6eb]"
                       }`}
                     >
-                      <div className="font-semibold text-xs">{wp.label}</div>
-                      <div className={`text-[10px] truncate mt-0.5 ${isSelected ? "text-slate-300" : "text-slate-400"}`}>
+                      <div className="font-semibold text-xs text-[#050505]">{wp.label}</div>
+                      <div className="text-[10px] truncate mt-0.5 text-[#65676b]">
                         {wp.desc}
                       </div>
                     </button>
@@ -386,14 +345,14 @@ export function SecurityCommandCenter({
             </div>
 
             {/* Font Size Selector */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-2.5">
+            <div className="bg-[#f0f2f5] p-3.5 rounded-xl border border-[#e4e6eb] space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-sm text-slate-900">Message Font Size</span>
-                <span className="text-xs font-mono font-medium text-slate-500">
+                <span className="font-semibold text-sm text-[#050505]">Message Font Size</span>
+                <span className="text-xs font-mono font-medium text-[#65676b]">
                   {fontSizes.find((f) => f.id === settings.fontSize)?.preview}
                 </span>
               </div>
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-3 gap-2">
                 {fontSizes.map((f) => (
                   <button
                     key={f.id}
@@ -401,8 +360,8 @@ export function SecurityCommandCenter({
                     onClick={() => triggerSavedFeedback({ fontSize: f.id })}
                     className={`py-2 rounded-lg text-xs font-medium border text-center transition-all cursor-pointer ${
                       (settings.fontSize || "medium") === f.id
-                        ? "bg-slate-900 text-white border-slate-900"
-                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                        ? "bg-[#0084ff] text-white border-[#0084ff] font-semibold"
+                        : "bg-white text-[#65676b] border-[#e4e6eb] hover:text-[#050505] hover:bg-[#e4e6eb]"
                     }`}
                   >
                     {f.label}
@@ -412,18 +371,18 @@ export function SecurityCommandCenter({
             </div>
 
             {/* Bubble Shape Style */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-2.5">
-              <span className="font-semibold text-sm text-slate-900 block">Message Bubble Style</span>
+            <div className="bg-[#f0f2f5] p-3.5 rounded-xl border border-[#e4e6eb] space-y-2.5">
+              <span className="font-semibold text-sm text-[#050505] block">Message Bubble Style</span>
               <div className="grid grid-cols-3 gap-2">
                 {bubbleStyles.map((b) => (
                   <button
                     key={b.id}
                     type="button"
                     onClick={() => triggerSavedFeedback({ bubbleStyle: b.id })}
-                    className={`p-2 rounded-xl text-center border text-xs font-medium transition-all cursor-pointer ${
+                    className={`p-2.5 rounded-xl text-center border text-xs font-medium transition-all cursor-pointer ${
                       (settings.bubbleStyle || "modern") === b.id
-                        ? "bg-slate-900 text-white border-slate-900"
-                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                        ? "bg-[#0084ff] text-white border-[#0084ff] font-semibold"
+                        : "bg-white text-[#65676b] border-[#e4e6eb] hover:text-[#050505] hover:bg-[#e4e6eb]"
                     }`}
                   >
                     {b.label}
@@ -433,14 +392,14 @@ export function SecurityCommandCenter({
             </div>
 
             {/* Input & Audio Preferences */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+            <div className="bg-[#f0f2f5] p-3.5 rounded-xl border border-[#e4e6eb] space-y-3">
               {/* Press Enter to Send */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <CornerDownLeft className="h-4 w-4 text-slate-600" />
+                  <CornerDownLeft className="h-4 w-4 text-[#65676b]" />
                   <div>
-                    <span className="font-semibold text-sm text-slate-900 block">Enter Key to Send</span>
-                    <span className="text-xs text-slate-500">Pressing Enter immediately sends message</span>
+                    <span className="font-semibold text-sm text-[#050505] block">Enter Key to Send</span>
+                    <span className="text-xs text-[#65676b]">Pressing Enter immediately sends message</span>
                   </div>
                 </div>
                 <Switch
@@ -450,19 +409,19 @@ export function SecurityCommandCenter({
               </div>
 
               {/* Sound Effects */}
-              <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
+              <div className="pt-2 border-t border-[#e4e6eb] flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Volume2 className="h-4 w-4 text-slate-600" />
+                  <Volume2 className="h-4 w-4 text-[#65676b]" />
                   <div>
-                    <span className="font-semibold text-sm text-slate-900 block">Message Audio Cues</span>
-                    <span className="text-xs text-slate-500">Subtle sound feedback on send & receive</span>
+                    <span className="font-semibold text-sm text-[#050505] block">Message Audio Cues</span>
+                    <span className="text-xs text-[#65676b]">Subtle sound feedback on send & receive</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => soundManager.playSend()}
-                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 underline cursor-pointer"
+                    className="text-[11px] font-semibold text-[#0084ff] hover:underline cursor-pointer"
                   >
                     Test
                   </button>
@@ -474,12 +433,12 @@ export function SecurityCommandCenter({
               </div>
 
               {/* Read Receipts */}
-              <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
+              <div className="pt-2 border-t border-[#e4e6eb] flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <CheckCheck className="h-4 w-4 text-slate-600" />
+                  <CheckCheck className="h-4 w-4 text-[#65676b]" />
                   <div>
-                    <span className="font-semibold text-sm text-slate-900 block">Read Receipts</span>
-                    <span className="text-xs text-slate-500">Show double checkmark delivery status</span>
+                    <span className="font-semibold text-sm text-[#050505] block">Read Receipts</span>
+                    <span className="text-xs text-[#65676b]">Show double checkmark delivery status</span>
                   </div>
                 </div>
                 <Switch
@@ -492,28 +451,27 @@ export function SecurityCommandCenter({
         )}
 
         {/* Saved Status Indicator Banner */}
-        <div className="pt-2 flex items-center justify-between border-t border-slate-200 text-xs">
-          <div className="flex items-center gap-1.5 text-slate-500">
+        <div className="pt-2 flex items-center justify-between border-t border-[#e4e6eb] text-xs">
+          <div className="flex items-center gap-1.5 text-[#65676b]">
             {savedBadge ? (
-              <span className="flex items-center gap-1 text-emerald-600 font-semibold animate-in fade-in">
+              <span className="flex items-center gap-1 text-[#0084ff] font-semibold animate-in fade-in">
                 <Check className="h-3.5 w-3.5" />
                 Saved to device
               </span>
             ) : (
               <span className="flex items-center gap-1">
-                <Sparkles className="h-3 w-3 text-slate-400" />
+                <Sparkles className="h-3 w-3 text-[#8a8d91]" />
                 Auto-saved to local storage
               </span>
             )}
           </div>
 
-          <Button
+          <button
             onClick={onClose}
-            size="sm"
-            className="rounded-xl px-4 py-1.5 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white cursor-pointer"
+            className="rounded-xl px-5 py-2 text-xs font-semibold bg-[#0084ff] text-white hover:bg-[#0073e6] transition-all cursor-pointer shadow-xs"
           >
             Done
-          </Button>
+          </button>
         </div>
       </div>
     </Dialog>

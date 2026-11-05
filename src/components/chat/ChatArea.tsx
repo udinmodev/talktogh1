@@ -23,15 +23,25 @@ import {
   PinOff,
   Link2,
   Globe,
+  ThumbsUp,
+  Plus,
+  Loader2,
+  Maximize2,
+  Download,
+  X,
+  AlertCircle,
+  WifiOff,
 } from "lucide-react";
 import LinkPreviewCard, { extractUrls, formatMessageWithLinks } from "./LinkPreviewCard";
 import { getThemeClasses, getWallpaperClass, getFontSizeClass, getBubbleRadius } from "@/lib/theme";
+import { getInternalApiHeaders } from "@/lib/api-security";
 
 interface ChatAreaProps {
   currentUser: User;
   contactUser: User;
   messages: Message[];
   settings: SecuritySettings;
+  sessionKey?: CryptoKey | null;
   onSendMessage: (
     text: string,
     mediaType?: "image" | "voice" | "doc",
@@ -46,6 +56,8 @@ interface ChatAreaProps {
   onClearChat: () => void;
   onTyping: (isTyping: boolean) => void;
   isPeerTyping: boolean;
+  isLoading?: boolean;
+  isOnline?: boolean;
   onBurnMessage?: (messageId: string) => void;
   onTogglePinMessage?: (messageId: string) => void;
 }
@@ -55,6 +67,9 @@ export function ChatArea({
   contactUser,
   messages,
   settings,
+  sessionKey,
+  isLoading = false,
+  isOnline = true,
   onSendMessage,
   onOpenSafetyNumbers,
   onOpenSecurityCenter,
@@ -78,6 +93,29 @@ export function ChatArea({
   const [customTimer, setCustomTimer] = useState<number | null>(null);
   const [showTimerMenu, setShowTimerMenu] = useState(false);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
+
+  // Full-screen Image Preview / Lightbox state
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+
+  // Close lightbox on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPreviewImage(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Clear temporary inline errors
+  useEffect(() => {
+    if (inlineError) {
+      const timer = setTimeout(() => setInlineError(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [inlineError]);
 
   // Real File Upload Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -124,6 +162,53 @@ export function ChatArea({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isPeerTyping]);
 
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [decryptedImages, setDecryptedImages] = useState<Record<string, string>>({});
+
+  // Client-side automatic decryption of encrypted media from ImageKit
+  useEffect(() => {
+    if (!sessionKey) return;
+    messages.forEach(async (msg) => {
+      if (msg.mediaType === "image" && msg.mediaUrl && !decryptedImages[msg.id]) {
+        // If it's already a direct data URL in current memory, cache immediately
+        if (msg.mediaUrl.startsWith("data:image")) {
+          setDecryptedImages((prev) => ({ ...prev, [msg.id]: msg.mediaUrl! }));
+          return;
+        }
+
+        // Fetch encrypted blob from ImageKit CDN
+        try {
+          const res = await fetch(msg.mediaUrl);
+          if (res.ok) {
+            const rawCiphertext = await res.text();
+            let parsed: any = null;
+            try {
+              parsed = JSON.parse(rawCiphertext);
+            } catch {
+              try {
+                parsed = JSON.parse(atob(rawCiphertext.trim()));
+              } catch {}
+            }
+
+            if (parsed && parsed.iv && parsed.ciphertext) {
+              const ivBuf = Uint8Array.from(atob(parsed.iv), (c) => c.charCodeAt(0));
+              const cipherBuf = Uint8Array.from(atob(parsed.ciphertext), (c) => c.charCodeAt(0));
+              const decryptedBuf = await window.crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: ivBuf },
+                sessionKey,
+                cipherBuf
+              );
+              const dataUrl = new TextDecoder().decode(decryptedBuf);
+              setDecryptedImages((prev) => ({ ...prev, [msg.id]: dataUrl }));
+            }
+          }
+        } catch (decryptErr) {
+          console.warn("Could not decrypt ImageKit media blob:", decryptErr);
+        }
+      }
+    });
+  }, [messages, sessionKey, decryptedImages]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputText(e.target.value);
     onTyping(true);
@@ -136,6 +221,13 @@ export function ChatArea({
   const handleSend = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!inputText.trim()) return;
+
+    // Instant offline error check
+    if (!isOnline || (typeof navigator !== "undefined" && !navigator.onLine)) {
+      setInlineError("Internet connection cut down! You are offline. Message cannot be sent.");
+      return;
+    }
+
     onSendMessage(inputText.trim(), undefined, undefined, isViewOnceMode, customTimer);
     setInputText("");
     setIsViewOnceMode(false);
@@ -144,36 +236,75 @@ export function ChatArea({
     onTyping(false);
   };
 
-  // Real Image Upload
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Instant Optimistic Image Display + Asynchronous Background Encryption & ImageKit Upload
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      onSendMessage(file.name, "image", dataUrl, isViewOnceMode, customTimer);
-      setIsViewOnceMode(false);
-      setCustomTimer(null);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
-    setShowAttachMenu(false);
-  };
+    if (!file || !file.type.startsWith("image/")) {
+      e.target.value = "";
+      return;
+    }
 
-  // Real Document Upload
-  const handleDocFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      onSendMessage(file.name, "doc", dataUrl, isViewOnceMode, customTimer);
-      setIsViewOnceMode(false);
-      setCustomTimer(null);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
     setShowAttachMenu(false);
+
+    // Instant offline check for media upload
+    if (!isOnline || (typeof navigator !== "undefined" && !navigator.onLine)) {
+      setInlineError("Internet connection cut down! Cannot upload photo while offline.");
+      e.target.value = "";
+      return;
+    }
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const localDataUrl = reader.result as string;
+        const currentViewOnce = isViewOnceMode;
+        const currentTimerVal = customTimer;
+
+        // Reset composer inputs immediately for snappy UX
+        setIsViewOnceMode(false);
+        setCustomTimer(null);
+
+        // 1. INSTANT DISPATCH: Display photo in the sender's chat UI immediately (zero latency)
+        onSendMessage(file.name, "image", localDataUrl, currentViewOnce, currentTimerVal);
+
+        // 2. BACKGROUND WORKER: Encrypt binary with AES-256-GCM and upload blob to ImageKit asynchronously
+        if (sessionKey) {
+          (async () => {
+            try {
+              const iv = window.crypto.getRandomValues(new Uint8Array(12));
+              const enc = new TextEncoder();
+              const encryptedBuf = await window.crypto.subtle.encrypt(
+                { name: "AES-GCM", iv },
+                sessionKey,
+                enc.encode(localDataUrl)
+              );
+
+              const ivBase64 = btoa(String.fromCharCode(...Array.from(iv)));
+              const cipherBase64 = btoa(String.fromCharCode(...Array.from(new Uint8Array(encryptedBuf))));
+              const encryptedBlobPayload = JSON.stringify({ iv: ivBase64, ciphertext: cipherBase64 });
+              const payloadBase64 = btoa(encryptedBlobPayload);
+
+              // Background upload to ImageKit
+              await fetch("/api/upload", {
+                method: "POST",
+                headers: getInternalApiHeaders(),
+                body: JSON.stringify({
+                  encryptedPayloadBase64: payloadBase64,
+                  filename: file.name,
+                }),
+              });
+            } catch (bgErr) {
+              console.warn("Background ImageKit encryption notice:", bgErr);
+            }
+          })();
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (readErr) {
+      console.warn("Image file read notice:", readErr);
+    }
+
+    e.target.value = "";
   };
 
   const emojis = ["😀", "😂", "❤️", "🔥", "👍", "🙏", "🔒", "🛡️", "🔑", "🚀", "✨", "⚡"];
@@ -181,7 +312,7 @@ export function ChatArea({
 
   return (
     <div
-      className={`relative flex-1 h-full flex flex-col bg-slate-50 overflow-hidden ${
+      className={`relative flex-1 h-full flex flex-col bg-white text-[#050505] overflow-hidden ${
         settings.preventCopyForward ? "select-none" : ""
       }`}
       onContextMenu={(e) => {
@@ -192,7 +323,7 @@ export function ChatArea({
     >
       {/* Watermark Overlay */}
       {settings.antiScreenshotWatermark && (
-        <div className="absolute inset-0 pointer-events-none z-10 flex flex-wrap items-center justify-around opacity-5 select-none overflow-hidden leading-loose font-mono text-xs text-slate-900 rotate-[-25deg]">
+        <div className="absolute inset-0 pointer-events-none z-10 flex flex-wrap items-center justify-around opacity-5 select-none overflow-hidden leading-loose font-mono text-xs text-slate-800 rotate-[-25deg]">
           {Array.from({ length: 30 }).map((_, i) => (
             <div key={i} className="m-8 whitespace-nowrap">
               CONFIDENTIAL // PRIVATE SESSION // {contactUser.name.toUpperCase()}
@@ -201,13 +332,13 @@ export function ChatArea({
         </div>
       )}
 
-      {/* Header - Modern Flat Messenger Navigation */}
-      <header className="h-16 px-4 md:px-6 bg-white flex items-center justify-between border-b border-slate-100 z-20 shrink-0">
+      {/* Header - Facebook Messenger Clean Header */}
+      <header className="h-16 px-4 md:px-6 bg-white flex items-center justify-between border-b border-[#f0f2f5] z-20 shrink-0 text-[#050505] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
         <div className="flex items-center gap-3 min-w-0">
           {/* Mobile Back Button */}
           <button
             onClick={onBackMobile}
-            className="md:hidden p-2 -ml-2 text-slate-600 hover:text-slate-900 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
+            className="md:hidden p-2 -ml-2 text-[#0084ff] hover:bg-[#f0f2f5] rounded-full transition-colors cursor-pointer"
             title="Back to chats"
           >
             <ArrowLeft className="h-5 w-5" />
@@ -215,7 +346,7 @@ export function ChatArea({
 
           {/* Contact Avatar */}
           <div className="relative shrink-0">
-            <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-200">
+            <div className="w-10 h-10 rounded-full overflow-hidden bg-[#e4e6eb]">
               <img
                 src={contactUser.avatar}
                 alt={contactUser.name}
@@ -223,23 +354,28 @@ export function ChatArea({
               />
             </div>
             {contactUser.isOnline && (
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
+              <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-[#31a24c] ring-2 ring-white" />
             )}
           </div>
 
           {/* Contact Details & Status */}
           <div className="flex flex-col min-w-0 justify-center">
-            <span className="font-semibold text-sm sm:text-base text-slate-900 tracking-tight truncate leading-tight">
-              {contactUser.name}
-            </span>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="font-bold text-[15px] text-[#050505] tracking-tight truncate leading-tight">
+                {contactUser.name}
+              </span>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-[#f0f2f5] text-[#65676b] font-medium truncate max-w-[120px]">
+                @{contactUser.id.replace(/@.*$/, "")}
+              </span>
+            </div>
             <div className="flex items-center gap-1.5 mt-0.5 leading-tight">
               {isPeerTyping ? (
-                <span className="text-blue-600 font-medium text-xs animate-pulse">
+                <span className="text-[#0084ff] font-medium text-xs animate-pulse">
                   typing...
                 </span>
               ) : (
-                <span className="text-slate-400 text-xs">
-                  {contactUser.isOnline ? "Online" : "Offline"}
+                <span className="text-[#65676b] text-xs">
+                  {contactUser.isOnline ? "Active now" : "Offline"}
                 </span>
               )}
             </div>
@@ -247,27 +383,27 @@ export function ChatArea({
         </div>
 
         {/* Action Toolbar */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1 sm:gap-2">
           {/* More options menu */}
           <div className="relative" ref={moreMenuRef}>
             <button
               onClick={() => setShowMoreMenu(!showMoreMenu)}
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+              className="w-9 h-9 flex items-center justify-center text-[#0084ff] hover:bg-[#f0f2f5] rounded-full transition-colors cursor-pointer"
             >
               <MoreVertical className="h-5 w-5" />
             </button>
 
             {showMoreMenu && (
               <div
-                className="absolute right-0 top-12 w-52 bg-white border border-slate-200/90 rounded-2xl p-1.5 z-50 text-xs text-slate-700 animate-in fade-in zoom-in-95 duration-100 divide-y divide-slate-100"
+                className="absolute right-0 top-11 w-52 bg-white border border-[#e4e6eb] rounded-2xl p-1.5 z-50 text-xs text-[#050505] shadow-xl animate-in fade-in zoom-in-95 duration-100 divide-y divide-[#f0f2f5]"
                 onClick={() => setShowMoreMenu(false)}
               >
                 <div className="p-1 space-y-0.5">
                   <button
                     onClick={onOpenSecurityCenter}
-                    className="w-full text-left px-3 py-2 hover:bg-slate-50 rounded-xl flex items-center gap-2.5 cursor-pointer text-slate-800 font-medium transition-colors"
+                    className="w-full text-left px-3 py-2 hover:bg-[#f0f2f5] rounded-xl flex items-center gap-2.5 cursor-pointer text-[#050505] font-medium transition-colors"
                   >
-                    <Shield className="h-4 w-4 text-slate-500" />
+                    <Shield className="h-4 w-4 text-[#65676b]" />
                     Security Settings
                   </button>
                 </div>
@@ -276,7 +412,7 @@ export function ChatArea({
                     onClick={onClearChat}
                     className="w-full text-left px-3 py-2 hover:bg-rose-50 rounded-xl text-rose-600 flex items-center gap-2.5 cursor-pointer transition-colors font-medium"
                   >
-                    <Flame className="h-4 w-4 text-rose-500" />
+                    <Flame className="h-4 w-4 text-rose-600" />
                     Clear Chat History
                   </button>
                 </div>
@@ -286,114 +422,140 @@ export function ChatArea({
         </div>
       </header>
 
+      {/* Offline Error Alert Banner */}
+      {(!isOnline || inlineError) && (
+        <div className="bg-[#fa383e] text-white px-4 py-2 flex items-center justify-between text-xs font-semibold shadow-xs z-20 shrink-0 animate-in slide-in-from-top-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <WifiOff className="h-4 w-4 shrink-0 animate-pulse" />
+            <span className="truncate">
+              {inlineError || "Internet connection cut down! You are offline. Messages will not be sent."}
+            </span>
+          </div>
+          {inlineError && (
+            <button
+              onClick={() => setInlineError(null)}
+              className="p-1 hover:bg-white/20 rounded cursor-pointer shrink-0"
+              title="Dismiss error"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Pinned Messages Banner */}
       {messages.some((m) => m.isPinned) && (
-        <div className="bg-slate-100/90 border-b border-slate-200/80 px-4 py-2 flex items-center justify-between text-xs text-slate-700 z-10 shrink-0">
+        <div className="bg-[#f0f2f5] border-b border-[#e4e6eb] px-4 py-2 flex items-center justify-between text-xs text-[#050505] z-10 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            <Pin className="h-3.5 w-3.5 text-blue-600 fill-current shrink-0" />
-            <span className="font-semibold text-slate-800 shrink-0">Pinned:</span>
-            <span className="truncate text-slate-600">
+            <Pin className="h-3.5 w-3.5 text-[#0084ff] fill-current shrink-0" />
+            <span className="font-semibold text-[#050505] shrink-0">Pinned:</span>
+            <span className="truncate text-[#65676b]">
               {messages.filter((m) => m.isPinned).pop()?.text}
             </span>
           </div>
-          <span className="text-[11px] text-slate-400 font-medium shrink-0 ml-2">
+          <span className="text-[11px] text-[#8a8d91] font-medium shrink-0 ml-2">
             {messages.filter((m) => m.isPinned).length} pinned
           </span>
         </div>
       )}
 
       {/* Message Canvas Area */}
-      <div className={`flex-1 overflow-y-auto px-4 md:px-8 lg:px-16 py-6 space-y-2 ${wallpaperClass} relative`}>
+      <div className={`flex-1 overflow-y-auto px-4 md:px-8 lg:px-16 py-6 space-y-2 bg-white relative`}>
         {/* Subtle E2EE Notice Pill */}
         <div className="flex justify-center my-3">
-          <div className="max-w-sm bg-slate-200/50 text-slate-500 text-xs px-3.5 py-1 rounded-full text-center flex items-center gap-1.5 select-none">
-            <Lock className="h-3 w-3 text-slate-400 shrink-0" />
-            <span className="truncate">Messages are end-to-end encrypted</span>
+          <div className="max-w-sm bg-[#f0f2f5] text-[#65676b] text-xs px-4 py-1.5 rounded-full text-center flex items-center gap-1.5 select-none font-medium">
+            <Lock className="h-3 w-3 text-[#0084ff] shrink-0" />
+            <span className="truncate">End-to-end encrypted chat</span>
           </div>
         </div>
 
         {/* Date Stamp */}
         <div className="flex justify-center my-2">
-          <span className="text-slate-400 text-xs font-medium">
+          <span className="px-3 py-1 rounded-full bg-[#f0f2f5] text-[#65676b] text-[11px] font-semibold">
             Today
           </span>
         </div>
 
-        {/* Zero State Intro Card when no messages yet */}
-        {messages.length === 0 && (
-          <div className="py-12 px-4 flex flex-col items-center justify-center text-center max-w-md mx-auto animate-in fade-in zoom-in-95 duration-200">
-            <div className="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center mb-3">
-              <ShieldCheck className="h-8 w-8 text-emerald-500" />
+        {/* Skeleton Message Flow while loading */}
+        {isLoading ? (
+          <div className="space-y-4 py-4">
+            {/* Incoming Bubble Skeleton */}
+            <div className="flex items-end gap-2 max-w-[70%] animate-pulse">
+              <div className="w-7 h-7 rounded-full bg-[#e4e6eb] shrink-0" />
+              <div className="space-y-1.5">
+                <div className="h-10 w-48 rounded-2xl rounded-bl-sm bg-[#f0f2f5]" />
+                <div className="h-2.5 w-12 bg-[#f0f2f5] rounded-full ml-1" />
+              </div>
             </div>
 
-            <h3 className="text-base font-bold text-slate-900 mb-1">
+            {/* Outgoing Bubble Skeleton */}
+            <div className="flex flex-col items-end max-w-[70%] ml-auto animate-pulse">
+              <div className="h-12 w-60 rounded-2xl rounded-br-sm bg-[#0084ff]/15" />
+              <div className="h-2.5 w-10 bg-[#f0f2f5] rounded-full mt-1 mr-1" />
+            </div>
+
+            {/* Incoming Longer Bubble Skeleton */}
+            <div className="flex items-end gap-2 max-w-[70%] animate-pulse">
+              <div className="w-7 h-7 rounded-full bg-[#e4e6eb] shrink-0" />
+              <div className="space-y-1.5">
+                <div className="h-16 w-64 rounded-2xl rounded-bl-sm bg-[#f0f2f5]" />
+                <div className="h-2.5 w-14 bg-[#f0f2f5] rounded-full ml-1" />
+              </div>
+            </div>
+
+            {/* Outgoing Media Bubble Skeleton */}
+            <div className="flex flex-col items-end max-w-[70%] ml-auto animate-pulse">
+              <div className="h-32 w-52 rounded-2xl rounded-br-sm bg-[#0084ff]/15" />
+              <div className="h-2.5 w-12 bg-[#f0f2f5] rounded-full mt-1 mr-1" />
+            </div>
+
+            {/* Incoming Short Response Skeleton */}
+            <div className="flex items-end gap-2 max-w-[70%] animate-pulse">
+              <div className="w-7 h-7 rounded-full bg-[#e4e6eb] shrink-0" />
+              <div className="space-y-1.5">
+                <div className="h-9 w-32 rounded-2xl rounded-bl-sm bg-[#f0f2f5]" />
+                <div className="h-2.5 w-10 bg-[#f0f2f5] rounded-full ml-1" />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Messenger Zero State Intro Card */}
+            {messages.length === 0 && (
+          <div className="py-12 px-4 flex flex-col items-center justify-center text-center max-w-md mx-auto animate-in fade-in zoom-in-95 duration-200">
+            <div className="relative mb-3">
+              <div className="w-20 h-20 rounded-full overflow-hidden bg-[#e4e6eb] ring-4 ring-[#f0f2f5]">
+                <img
+                  src={contactUser.avatar}
+                  alt={contactUser.name}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              {contactUser.isOnline && (
+                <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-[#31a24c] ring-2 ring-white" />
+              )}
+            </div>
+
+            <h3 className="text-xl font-bold text-[#050505] mb-1">
               {contactUser.name}
             </h3>
 
-            <p className="text-xs font-mono text-slate-500 mb-2">
-              @{contactUser.id}
+            <p className="text-xs font-mono text-[#0084ff] mb-1 font-semibold">
+              @{contactUser.id.replace(/@.*$/, "")}
             </p>
 
-            <p className="text-xs text-slate-500 leading-relaxed mb-6">
-              Direct confidential conversation with @{contactUser.id}. Messages are zero-knowledge encrypted and secured with AES-256 wire cryptography.
+            <p className="text-xs text-[#65676b] leading-relaxed mb-5">
+              You&apos;re connected on Messenger. Direct end-to-end encrypted conversation secured with AES-256-GCM wire cryptography.
             </p>
 
-            {/* Secure Message Starters */}
-            <div className="w-full bg-white border border-slate-200 rounded-2xl p-3 text-left">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                Send Encrypted Message
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs">
-                <button
-                  type="button"
-                  onClick={() => onSendMessage("👋 Hello! Secure connection established.")}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <span>💬</span>
-                  <span className="truncate">Say Hello</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => imageInputRef.current?.click()}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <span>📷</span>
-                  <span className="truncate">Photo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <span>📄</span>
-                  <span className="truncate">Document</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSendMessage("⏱️ Confidential update with auto self-destruct.", undefined, undefined, false, 30)}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <span>⏱️</span>
-                  <span className="truncate">30s Expire</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSendMessage("👁️ View-once secret note: burned upon reading.", undefined, undefined, true, null)}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <span>👁️</span>
-                  <span className="truncate">View Once</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSendMessage("Verified reference: https://github.com")}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <span>🔗</span>
-                  <span className="truncate">Rich Link</span>
-                </button>
-              </div>
-            </div>
+            {/* Messenger Wave / Say Hello Action */}
+            <button
+              type="button"
+              onClick={() => onSendMessage("👋 Hello!")}
+              className="px-6 py-2.5 rounded-full bg-[#0084ff] hover:bg-[#0073e6] active:scale-98 text-white font-semibold text-sm flex items-center gap-2 transition-all cursor-pointer shadow-sm hover:shadow"
+            >
+              <span>Say Hello 👋</span>
+            </button>
           </div>
         )}
 
@@ -419,7 +581,7 @@ export function ChatArea({
                 <div
                   className={`absolute -top-7 ${
                     isMe ? "right-2" : "left-2"
-                  } bg-white border border-slate-200 rounded-full px-2 py-0.5 flex items-center gap-1 z-30`}
+                  } bg-white border border-[#e2e8f0] rounded-full px-2 py-0.5 flex items-center gap-1 z-30 shadow-md`}
                 >
                   {quickReactions.map((emoji) => (
                     <button
@@ -435,36 +597,57 @@ export function ChatArea({
 
               {/* Natural Messenger Bubble */}
               <div
-                className={`relative max-w-[85%] md:max-w-[70%] ${fontSizeClass} leading-relaxed transition-colors ${bubbleRadius} px-4 py-2.5 ${
+                className={`relative max-w-[85%] md:max-w-[70%] ${fontSizeClass} leading-relaxed transition-all ${bubbleRadius} px-3.5 py-2 ${
                   isMe
                     ? `${theme.bubbleOutgoing}`
-                    : "bg-white text-slate-900 border border-slate-200/80 shadow-xs"
+                    : "bg-[#f0f2f5] text-[#050505]"
                 }`}
               >
-                {/* Media Preview */}
+                {/* Media Preview - Openable Full Lightbox */}
                 {msg.mediaType === "image" && (
-                  <div className="mb-2 rounded-xl overflow-hidden">
-                    {msg.mediaUrl ? (
-                      <img
-                        src={msg.mediaUrl}
-                        alt="Photo attachment"
-                        className="w-full max-h-64 object-cover rounded-xl"
-                      />
+                  <div className="mb-2">
+                    {decryptedImages[msg.id] || msg.mediaUrl ? (
+                      <div
+                        onClick={() => {
+                          const src = decryptedImages[msg.id] || msg.mediaUrl;
+                          if (src) {
+                            setPreviewImage({
+                              url: src,
+                              name: msg.text || "Photo Attachment",
+                            });
+                          }
+                        }}
+                        className="group/img relative rounded-2xl overflow-hidden cursor-pointer shadow-xs border border-black/5 hover:opacity-95 transition-all"
+                        title="Click to open photo"
+                      >
+                        <img
+                          src={decryptedImages[msg.id] || msg.mediaUrl}
+                          alt={msg.text || "Photo attachment"}
+                          className="w-full max-h-72 object-cover rounded-2xl transition-transform duration-200 group-hover/img:scale-[1.02]"
+                        />
+                        {/* Hover Overlay Hint */}
+                        <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/25 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
+                          <span className="bg-black/75 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-xs font-medium shadow-lg">
+                            <Maximize2 className="h-3.5 w-3.5" />
+                            <span>Open</span>
+                          </span>
+                        </div>
+                      </div>
                     ) : (
                       <div
                         className={`p-2.5 rounded-xl flex items-center gap-3 ${
                           isMe
                             ? theme.bubbleCard
-                            : "bg-slate-100 text-slate-800"
+                            : "bg-white/80 text-[#050505] border border-[#e4e6eb]"
                         }`}
                       >
-                        <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                        <div className="w-9 h-9 rounded-lg bg-[#0084ff]/10 text-[#0084ff] flex items-center justify-center shrink-0">
                           <ImageIcon className="h-5 w-5" />
                         </div>
                         <div className="text-xs">
                           <div className="font-medium">{msg.text || "Photo Attachment"}</div>
-                          <div className={`text-[11px] ${isMe ? theme.subtle : "text-slate-400"}`}>
-                            Photo
+                          <div className={`text-[11px] ${isMe ? theme.subtle : "text-[#65676b]"}`}>
+                            Decrypting Encrypted Photo...
                           </div>
                         </div>
                       </div>
@@ -477,17 +660,17 @@ export function ChatArea({
                     className={`mb-2 rounded-xl p-2.5 flex items-center gap-3 text-xs ${
                       isMe
                         ? theme.bubbleCard
-                        : "bg-slate-100 text-slate-800"
+                        : "bg-white/80 text-[#050505] border border-[#e4e6eb]"
                     }`}
                   >
-                    <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                    <div className="w-9 h-9 rounded-lg bg-[#0084ff]/10 text-[#0084ff] flex items-center justify-center shrink-0">
                       <FileText className="h-5 w-5" />
                     </div>
                     <div>
                       <div className="font-medium truncate max-w-[200px]">
                         {msg.text || "Document.pdf"}
                       </div>
-                      <div className={`text-[11px] ${isMe ? theme.subtle : "text-slate-400"}`}>
+                      <div className={`text-[11px] ${isMe ? theme.subtle : "text-[#65676b]"}`}>
                         Encrypted File
                       </div>
                     </div>
@@ -499,7 +682,7 @@ export function ChatArea({
                     className={`mb-2 flex items-center gap-2.5 p-2 rounded-xl ${
                       isMe
                         ? theme.bubbleCard
-                        : "bg-slate-100 text-slate-800"
+                        : "bg-white/80 text-[#050505] border border-[#e4e6eb]"
                     }`}
                   >
                     <button
@@ -511,7 +694,7 @@ export function ChatArea({
                           alert("Playing voice memo...");
                         }
                       }}
-                      className="w-7 h-7 rounded-full bg-white text-slate-900 flex items-center justify-center font-bold shrink-0 hover:bg-slate-100 transition-colors cursor-pointer text-xs"
+                      className="w-7 h-7 rounded-full bg-[#0084ff] text-white flex items-center justify-center font-bold shrink-0 hover:bg-[#0073e6] transition-colors cursor-pointer text-xs"
                       title="Play Voice Note"
                     >
                       ▶
@@ -522,13 +705,13 @@ export function ChatArea({
                         <div
                           key={i}
                           className={`w-0.5 rounded-full ${
-                            isMe ? "bg-white/80" : "bg-slate-500"
+                            isMe ? "bg-white/80" : "bg-[#0084ff]"
                           }`}
                           style={{ height: `${h}%` }}
                         />
                       ))}
                     </div>
-                    <span className={`text-[11px] font-mono ${isMe ? theme.subtle : "text-slate-400"}`}>
+                    <span className={`text-[11px] font-mono ${isMe ? theme.subtle : "text-[#65676b]"}`}>
                       {msg.text.includes("(") ? msg.text.match(/\((.*?)\)/)?.[1] || "0:05" : "0:05"}
                     </span>
                   </div>
@@ -537,7 +720,7 @@ export function ChatArea({
                 {/* View-Once Message Handling */}
                 {msg.viewOnce ? (
                   msg.isBurned ? (
-                    <div className="flex items-center gap-2 py-1 italic opacity-60 text-xs">
+                    <div className="flex items-center gap-2 py-1 italic opacity-60 text-xs text-[#65676b]">
                       <Flame className="h-4 w-4" />
                       <span>View-once message opened and destroyed</span>
                     </div>
@@ -547,7 +730,7 @@ export function ChatArea({
                       className={`flex items-center gap-2.5 py-1.5 px-3 rounded-xl transition-all cursor-pointer font-medium text-xs ${
                         isMe
                           ? "bg-black/20 hover:bg-black/30 text-white"
-                          : "bg-slate-100 hover:bg-slate-200 text-slate-800"
+                          : "bg-white hover:bg-neutral-100 text-[#050505] border border-[#e4e6eb]"
                       }`}
                     >
                       <div className="w-6 h-6 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-[10px]">
@@ -592,10 +775,10 @@ export function ChatArea({
                     {Object.entries(msg.reactions).map(([uid, emo]) => (
                       <span
                         key={uid}
-                        className={`rounded-full px-2 py-0.5 text-xs ${
+                        className={`rounded-full px-2 py-0.5 text-xs shadow-xs ${
                           isMe
                             ? "bg-black/20 text-white"
-                            : "bg-slate-100 text-slate-800 border border-slate-200"
+                            : "bg-white text-[#050505] border border-[#e4e6eb]"
                         }`}
                       >
                         {emo}
@@ -607,7 +790,7 @@ export function ChatArea({
                 {/* Message Meta Footer */}
                 <div
                   className={`flex items-center justify-end gap-1 mt-1 text-[11px] select-none ${
-                    isMe ? theme.subtle : "text-slate-400"
+                    isMe ? theme.subtle : "text-[#65676b]"
                   }`}
                 >
                   {/* Disappearing timer indicator */}
@@ -617,8 +800,8 @@ export function ChatArea({
                         remainingSeconds <= 5
                           ? "bg-rose-500 text-white font-bold"
                           : isMe
-                          ? "bg-black/25 text-white"
-                          : "bg-slate-200 text-slate-700"
+                          ? "bg-black/20 text-white"
+                          : "bg-white text-[#65676b] border border-[#e4e6eb]"
                       }`}
                     >
                       <Timer className="h-3 w-3" />
@@ -639,6 +822,14 @@ export function ChatArea({
                     <span className="ml-0.5">
                       {msg.status === "sending" ? (
                         <span className="text-[10px]">⏱</span>
+                      ) : msg.status === "error" ? (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-[10px] font-bold text-white bg-rose-600 px-1.5 py-0.2 rounded-full cursor-pointer shadow-xs"
+                          title="Message failed to send (Internet cut down / offline)"
+                        >
+                          <AlertCircle className="h-2.5 w-2.5" />
+                          <span>Failed</span>
+                        </span>
                       ) : msg.status === "sent" || !settings?.readReceipts ? (
                         <Check className={`h-3.5 w-3.5 ${theme.subtle}`} />
                       ) : (
@@ -655,7 +846,7 @@ export function ChatArea({
                         msg.isPinned
                           ? isMe
                             ? "text-white opacity-100"
-                            : "text-blue-600 opacity-100"
+                            : "text-[#0084ff] opacity-100"
                           : "opacity-40 hover:opacity-100"
                       }`}
                       title={msg.isPinned ? "Unpin message" : "Pin message"}
@@ -668,13 +859,15 @@ export function ChatArea({
             </div>
           );
         })}
+          </>
+        )}
 
-        {/* Peer Typing Indicator */}
+        {/* Peer Typing Indicator - Messenger Animated Dots */}
         {isPeerTyping && (
-          <div className={`flex items-center gap-1.5 bg-white border border-slate-200/80 ${getBubbleRadius(settings?.bubbleStyle || "modern", false)} px-4 py-2.5 max-w-[80px]`}>
-            <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
-            <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
-            <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
+          <div className="flex items-center gap-1.5 bg-[#f0f2f5] rounded-full px-4 py-2.5 max-w-[80px]">
+            <span className="w-2 h-2 bg-[#65676b] rounded-full animate-bounce [animation-delay:-0.3s]" />
+            <span className="w-2 h-2 bg-[#65676b] rounded-full animate-bounce [animation-delay:-0.15s]" />
+            <span className="w-2 h-2 bg-[#65676b] rounded-full animate-bounce" />
           </div>
         )}
 
@@ -683,12 +876,12 @@ export function ChatArea({
 
       {/* Emoji Drawer */}
       {showEmojiPicker && (
-        <div className="bg-white border-t border-slate-100 p-3 grid grid-cols-6 sm:grid-cols-12 gap-1.5 max-h-36 overflow-y-auto">
+        <div className="bg-white border-t border-[#f0f2f5] p-3 grid grid-cols-6 sm:grid-cols-12 gap-1.5 max-h-36 overflow-y-auto shadow-sm">
           {emojis.map((emoji) => (
             <button
               key={emoji}
               onClick={() => setInputText((prev) => prev + emoji)}
-              className="text-lg p-1.5 rounded-full hover:bg-slate-100 transition-colors cursor-pointer text-center"
+              className="text-lg p-1.5 rounded-full hover:bg-[#f0f2f5] transition-colors cursor-pointer text-center"
             >
               {emoji}
             </button>
@@ -696,19 +889,12 @@ export function ChatArea({
         </div>
       )}
 
-      {/* Hidden Real File Inputs for Image & Document Upload */}
+      {/* Hidden Real File Input for Image Upload (Images Only) */}
       <input
         type="file"
         ref={imageInputRef}
         onChange={handleImageFileChange}
-        accept="image/*,video/*"
-        className="hidden"
-      />
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleDocFileChange}
-        accept=".pdf,.doc,.docx,.txt,.zip"
+        accept="image/jpeg,image/png,image/webp,image/gif"
         className="hidden"
       />
 
@@ -716,181 +902,248 @@ export function ChatArea({
       {showAttachMenu && (
         <div
           ref={attachMenuRef}
-          className="absolute bottom-20 left-6 bg-white border border-slate-200/90 rounded-2xl p-1.5 z-30 text-xs text-slate-700 animate-in fade-in zoom-in-95 duration-100"
+          className="absolute bottom-20 left-6 bg-white border border-[#e4e6eb] rounded-2xl p-1.5 z-30 text-xs text-[#050505] shadow-xl animate-in fade-in zoom-in-95 duration-100 min-w-[160px]"
         >
           <button
             onClick={() => {
               setShowAttachMenu(false);
               imageInputRef.current?.click();
             }}
-            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer text-left w-full text-slate-700 hover:text-slate-900 font-medium"
+            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl hover:bg-[#f0f2f5] transition-colors cursor-pointer text-left w-full text-[#050505] font-medium"
           >
-            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-blue-50 text-[#0084ff] flex items-center justify-center shrink-0">
               <ImageIcon className="h-4 w-4" />
             </div>
-            <span>Photo & Video</span>
-          </button>
-          <button
-            onClick={() => {
-              setShowAttachMenu(false);
-              fileInputRef.current?.click();
-            }}
-            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer text-left w-full text-slate-700 hover:text-slate-900 font-medium"
-          >
-            <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-              <FileText className="h-4 w-4" />
-            </div>
-            <span>Document</span>
+            <span>Photo</span>
           </button>
         </div>
       )}
 
-      {/* Unified Seamless Input Bar - Same bg as main canvas, unified connected field */}
-      <footer className="p-3 bg-[#f8f9fa] z-20 shrink-0">
+      {/* Facebook Messenger Clean Input Bar */}
+      <footer className="p-3 bg-white border-t border-[#f0f2f5] z-20 shrink-0">
         <div className="max-w-4xl mx-auto">
           {/* Detected URL Preview Pill */}
           {(() => {
             const detectedUrls = extractUrls(inputText);
             if (detectedUrls.length === 0) return null;
             return (
-              <div className="mb-2 px-3 py-1.5 bg-blue-50/90 border border-blue-200/90 rounded-2xl flex items-center justify-between text-xs text-blue-900 animate-in fade-in slide-in-from-bottom-2 duration-150">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <Link2 className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                  <span className="font-semibold text-blue-800 text-[11px]">Link preview detected:</span>
-                  <span className="truncate font-mono text-[11px] text-blue-600 max-w-[200px] sm:max-w-md">
+              <div className="mb-2 px-3.5 py-1.5 bg-[#f0f2f5] border border-[#0084ff]/30 rounded-full flex items-center justify-between text-xs text-[#0084ff] animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Link2 className="h-3.5 w-3.5 text-[#0084ff] shrink-0" />
+                  <span className="font-semibold text-[#050505] text-[11px]">Link preview detected:</span>
+                  <span className="truncate font-mono text-[11px] text-[#0084ff] max-w-[200px] sm:max-w-md">
                     {detectedUrls[0]}
                   </span>
                 </div>
-                <span className="text-[10px] text-blue-500 font-medium shrink-0 ml-2">
+                <span className="text-[10.5px] text-[#65676b] font-medium shrink-0 ml-2">
                   Rich card will attach
                 </span>
               </div>
             );
           })()}
 
-          {/* Single Connected Pill Input Container */}
-          <div className={`flex items-center bg-white border border-slate-200/90 rounded-full px-2 py-1.5 ${theme.ring} focus-within:ring-1 transition-all`}>
-            {/* Connected Attachment / Upload Icon */}
+          {/* Messenger Input Container */}
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* Attachment Action Button */}
             <button
               type="button"
               onClick={() => setShowAttachMenu(!showAttachMenu)}
-              className={`p-2 rounded-full transition-colors cursor-pointer shrink-0 ${
-                showAttachMenu
-                  ? "bg-slate-100 text-slate-900"
-                  : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
-              }`}
-              title="Attach photo or document"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-[#0084ff] hover:bg-[#f0f2f5] transition-colors cursor-pointer shrink-0"
+              title="Add attachment"
             >
-              <Paperclip className="h-5 w-5" />
+              <Plus className="h-5 w-5" />
             </button>
 
-            {/* Input Form Field */}
-            <form onSubmit={handleSend} className="flex-1 flex items-center px-2">
-              <input
-                type="text"
-                value={inputText}
-                onChange={handleInputChange}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    if (settings?.enterToSend === false) {
-                      e.preventDefault();
-                    }
-                  }
-                }}
-                placeholder="Message..."
-                className="w-full bg-transparent text-slate-900 placeholder:text-slate-400 text-sm focus:outline-none"
-              />
-            </form>
+            {/* Quick Photo Upload Button */}
+            <button
+              type="button"
+              disabled={isUploadingImage}
+              onClick={() => imageInputRef.current?.click()}
+              className="w-9 h-9 rounded-full flex items-center justify-center text-[#0084ff] hover:bg-[#f0f2f5] transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+              title="Attach photo"
+            >
+              {isUploadingImage ? (
+                <Loader2 className="h-5 w-5 animate-spin text-[#0084ff]" />
+              ) : (
+                <ImageIcon className="h-5 w-5" />
+              )}
+            </button>
 
-            {/* Per-Message Custom Self-Destruct Timer Toggle */}
-            <div className="relative">
+            {/* Messenger Pill Input Container */}
+            <div className="flex-1 flex items-center bg-[#f0f2f5] rounded-full px-3.5 py-1.5 focus-within:ring-2 focus-within:ring-[#0084ff]/20 transition-all">
+              {/* Input Form Field */}
+              <form onSubmit={handleSend} className="flex-1 flex items-center mr-1">
+                <input
+                  type="text"
+                  value={inputText}
+                  onChange={handleInputChange}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      if (settings?.enterToSend === false) {
+                        e.preventDefault();
+                      }
+                    }
+                  }}
+                  placeholder="Aa"
+                  className="w-full bg-transparent text-[#050505] placeholder:text-[#65676b] text-sm focus:outline-none"
+                />
+              </form>
+
+              {/* Per-Message Custom Self-Destruct Timer Toggle */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowTimerMenu(!showTimerMenu)}
+                  className={`p-1.5 rounded-full text-xs font-mono transition-all cursor-pointer shrink-0 flex items-center justify-center mr-0.5 ${
+                    customTimer !== null
+                      ? "bg-rose-500 text-white font-bold ring-2 ring-rose-300"
+                      : "text-[#65676b] hover:text-[#050505] hover:bg-neutral-200/60"
+                  }`}
+                  title={customTimer !== null ? `Message timer set to ${customTimer}s` : "Set message self-destruct timer"}
+                >
+                  <Timer className="h-4 w-4" />
+                </button>
+
+                {showTimerMenu && (
+                  <div className="absolute bottom-11 -left-12 bg-white border border-[#e4e6eb] rounded-2xl p-2 z-40 text-xs text-[#050505] shadow-xl animate-in fade-in zoom-in-95 duration-100 min-w-[140px]">
+                    <div className="text-[11px] font-bold text-[#65676b] px-2 py-1 uppercase tracking-wider">
+                      Self-Destruct
+                    </div>
+                    {[
+                      { label: "Default", val: null },
+                      { label: "5 seconds", val: 5 },
+                      { label: "10 seconds", val: 10 },
+                      { label: "30 seconds", val: 30 },
+                      { label: "1 minute", val: 60 },
+                      { label: "1 hour", val: 3600 },
+                    ].map((t) => (
+                      <button
+                        key={t.label}
+                        type="button"
+                        onClick={() => {
+                          setCustomTimer(t.val);
+                          setShowTimerMenu(false);
+                        }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-medium cursor-pointer transition-colors ${
+                          customTimer === t.val
+                            ? "bg-[#e7f3ff] text-[#0084ff] font-semibold"
+                            : "hover:bg-[#f0f2f5] text-[#65676b] hover:text-[#050505]"
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* View-Once Security Mode Toggle */}
               <button
                 type="button"
-                onClick={() => setShowTimerMenu(!showTimerMenu)}
-                className={`p-1.5 rounded-full text-xs font-mono transition-all cursor-pointer shrink-0 flex items-center justify-center mr-0.5 ${
-                  customTimer !== null
-                    ? "bg-rose-500 text-white font-bold ring-2 ring-rose-300"
-                    : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+                onClick={() => setIsViewOnceMode(!isViewOnceMode)}
+                className={`w-6 h-6 rounded-full text-[11px] font-bold transition-all cursor-pointer shrink-0 flex items-center justify-center mr-1 ${
+                  isViewOnceMode
+                    ? "bg-amber-500 text-white shadow-xs ring-2 ring-amber-300"
+                    : "text-[#65676b] hover:text-[#050505] hover:bg-neutral-200/60 border border-[#cbd5e1]"
                 }`}
-                title={customTimer !== null ? `Message timer set to ${customTimer}s` : "Set message self-destruct timer"}
+                title={isViewOnceMode ? "View-Once Active (Disappears after reading)" : "Enable View-Once"}
               >
-                <Timer className="h-4 w-4" />
+                1
               </button>
 
-              {showTimerMenu && (
-                <div className="absolute bottom-10 -left-12 bg-white border border-slate-200/90 rounded-2xl p-2 z-40 text-xs text-slate-700 shadow-sm animate-in fade-in zoom-in-95 duration-100 min-w-[140px]">
-                  <div className="text-[11px] font-semibold text-slate-500 px-2 py-1 uppercase tracking-wider">
-                    Self-Destruct
-                  </div>
-                  {[
-                    { label: "Default", val: null },
-                    { label: "5 seconds", val: 5 },
-                    { label: "10 seconds", val: 10 },
-                    { label: "30 seconds", val: 30 },
-                    { label: "1 minute", val: 60 },
-                    { label: "1 hour", val: 3600 },
-                  ].map((t) => (
-                    <button
-                      key={t.label}
-                      type="button"
-                      onClick={() => {
-                        setCustomTimer(t.val);
-                        setShowTimerMenu(false);
-                      }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
-                        customTimer === t.val
-                          ? "bg-slate-900 text-white"
-                          : "hover:bg-slate-100 text-slate-700"
-                      }`}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* Emoji Button */}
+              <button
+                type="button"
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="p-1.5 text-[#0084ff] hover:bg-neutral-200/60 rounded-full transition-colors cursor-pointer shrink-0"
+                title="Choose an emoji"
+              >
+                <Smile className="h-5 w-5" />
+              </button>
             </div>
 
-            {/* View-Once Security Mode Toggle */}
-            <button
-              type="button"
-              onClick={() => setIsViewOnceMode(!isViewOnceMode)}
-              className={`w-7 h-7 rounded-full text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center justify-center mr-0.5 ${
-                isViewOnceMode
-                  ? "bg-amber-500 text-white shadow-sm ring-2 ring-amber-300"
-                  : "text-slate-400 hover:text-slate-700 hover:bg-slate-50 border border-slate-200"
-              }`}
-              title={isViewOnceMode ? "View-Once Active (Disappears after reading)" : "Enable View-Once"}
-            >
-              1
-            </button>
-
-            {/* Emoji Button */}
-            <button
-              type="button"
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-full transition-colors cursor-pointer shrink-0"
-              title="Emojis"
-            >
-              <Smile className="h-5 w-5" />
-            </button>
-
-            {/* Send Button */}
-            <button
-              type="button"
-              onClick={() => handleSend()}
-              disabled={!inputText.trim()}
-              className={`w-8 h-8 rounded-full flex items-center justify-center font-bold transition-colors cursor-pointer shrink-0 ml-1 ${
-                inputText.trim()
-                  ? `${theme.bg} ${theme.hoverBg} text-white cursor-pointer`
-                  : "bg-slate-100 text-slate-300 cursor-not-allowed"
-              }`}
-              title="Send message"
-            >
-              <Send className="h-4 w-4 fill-current ml-0.5" />
-            </button>
+            {/* Messenger Send Button or Thumbs Up */}
+            {inputText.trim() ? (
+              <button
+                type="button"
+                onClick={() => handleSend()}
+                className="w-9 h-9 rounded-full bg-[#0084ff] hover:bg-[#0073e6] text-white flex items-center justify-center font-bold shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                title="Send message"
+              >
+                <Send className="h-4 w-4 fill-current ml-0.5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onSendMessage("👍")}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-[#0084ff] hover:bg-[#f0f2f5] transition-transform active:scale-125 cursor-pointer shrink-0"
+                title="Send a Thumbs Up 👍"
+              >
+                <ThumbsUp className="h-5 w-5 fill-[#0084ff]" />
+              </button>
+            )}
           </div>
         </div>
       </footer>
+
+      {/* Full-Screen Image Lightbox Preview Modal */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col animate-in fade-in duration-150 select-none"
+          onClick={() => setPreviewImage(null)}
+        >
+          {/* Lightbox Top Navigation Bar */}
+          <div
+            className="h-16 px-4 md:px-6 flex items-center justify-between text-white bg-black/60 border-b border-white/10 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-[#0084ff]/20 text-[#0084ff] flex items-center justify-center shrink-0">
+                <ImageIcon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold truncate text-white max-w-[200px] md:max-w-md">
+                  {previewImage.name}
+                </p>
+                <p className="text-[11px] text-neutral-400">Encrypted Confidential Media</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={previewImage.url}
+                download={previewImage.name || "confidential_photo.png"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-medium"
+                title="Download photo"
+              >
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline">Download</span>
+              </a>
+              <button
+                onClick={() => setPreviewImage(null)}
+                className="p-2 rounded-full hover:bg-white/20 text-white transition-colors cursor-pointer"
+                title="Close (Esc)"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Lightbox Image Stage */}
+          <div
+            className="flex-1 flex items-center justify-center p-4 md:p-8 overflow-auto"
+            onClick={() => setPreviewImage(null)}
+          >
+            <img
+              src={previewImage.url}
+              alt={previewImage.name}
+              onClick={(e) => e.stopPropagation()}
+              className="max-h-[85vh] max-w-[92vw] object-contain rounded-xl shadow-2xl border border-white/10"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

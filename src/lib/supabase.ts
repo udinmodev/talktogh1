@@ -23,6 +23,7 @@ export const isSupabaseConfigured = Boolean(
 );
 
 let cachedClient: SupabaseClient | null = null;
+let cachedAdminClient: SupabaseClient | null = null;
 
 export function getSupabaseClient(): SupabaseClient | null {
   if (!isSupabaseConfigured) {
@@ -31,12 +32,28 @@ export function getSupabaseClient(): SupabaseClient | null {
   if (!cachedClient) {
     cachedClient = createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    });
+  }
+  return cachedClient;
+}
+
+export function getSupabaseAdminClient(): SupabaseClient | null {
+  const serviceKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey;
+  if (!supabaseUrl || !serviceKey) return null;
+
+  if (!cachedAdminClient) {
+    cachedAdminClient = createClient(supabaseUrl, serviceKey, {
+      auth: {
         persistSession: false,
         autoRefreshToken: false,
       },
     });
   }
-  return cachedClient;
+  return cachedAdminClient;
 }
 
 export const supabase = isSupabaseConfigured

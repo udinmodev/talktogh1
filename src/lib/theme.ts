@@ -4,76 +4,76 @@ export function getThemeClasses(theme: ThemeColor = "blue") {
   switch (theme) {
     case "emerald":
       return {
-        bg: "bg-[#07c160]",
-        hoverBg: "hover:bg-emerald-600",
-        text: "text-[#07c160]",
-        border: "border-[#07c160]",
-        ring: "focus-within:border-[#07c160] focus-within:ring-[#07c160]/20",
-        bubbleOutgoing: "bg-[#07c160] text-white",
-        bubbleCard: "bg-emerald-700/40 border-emerald-400/30 text-white",
+        bg: "bg-[#00a884]",
+        hoverBg: "hover:bg-[#008f6f]",
+        text: "text-[#00a884]",
+        border: "border-[#00a884]",
+        ring: "focus-within:border-[#00a884] focus-within:ring-[#00a884]/20",
+        bubbleOutgoing: "bg-[#00a884] text-white shadow-xs",
+        bubbleCard: "bg-[#008f6f] border-emerald-400 text-white",
         subtle: "text-emerald-100",
-        accentHex: "#07c160",
+        accentHex: "#00a884",
       };
     case "slate":
       return {
-        bg: "bg-slate-900",
-        hoverBg: "hover:bg-slate-800",
-        text: "text-slate-900",
-        border: "border-slate-900",
-        ring: "focus-within:border-slate-900 focus-within:ring-slate-900/20",
-        bubbleOutgoing: "bg-slate-900 text-white",
-        bubbleCard: "bg-slate-800/80 border-slate-700 text-white",
+        bg: "bg-[#050505]",
+        hoverBg: "hover:bg-[#1c1e21]",
+        text: "text-[#050505]",
+        border: "border-[#050505]",
+        ring: "focus-within:border-[#050505] focus-within:ring-[#050505]/20",
+        bubbleOutgoing: "bg-[#050505] text-white shadow-xs",
+        bubbleCard: "bg-[#1c1e21] border-[#303030] text-white",
         subtle: "text-slate-300",
-        accentHex: "#0f172a",
+        accentHex: "#050505",
       };
     case "purple":
       return {
-        bg: "bg-purple-600",
-        hoverBg: "hover:bg-purple-700",
-        text: "text-purple-600",
-        border: "border-purple-600",
-        ring: "focus-within:border-purple-600 focus-within:ring-purple-600/20",
-        bubbleOutgoing: "bg-purple-600 text-white",
-        bubbleCard: "bg-purple-700/40 border-purple-400/30 text-white",
+        bg: "bg-gradient-to-r from-[#7c3aed] to-[#d946ef]",
+        hoverBg: "hover:opacity-90",
+        text: "text-[#7c3aed]",
+        border: "border-[#7c3aed]",
+        ring: "focus-within:border-[#7c3aed] focus-within:ring-[#7c3aed]/20",
+        bubbleOutgoing: "bg-gradient-to-r from-[#7c3aed] to-[#d946ef] text-white shadow-xs",
+        bubbleCard: "bg-purple-800/80 border-purple-400 text-white",
         subtle: "text-purple-100",
-        accentHex: "#9333ea",
+        accentHex: "#7c3aed",
       };
     case "rose":
       return {
-        bg: "bg-rose-500",
-        hoverBg: "hover:bg-rose-600",
-        text: "text-rose-500",
-        border: "border-rose-500",
-        ring: "focus-within:border-rose-500 focus-within:ring-rose-500/20",
-        bubbleOutgoing: "bg-rose-500 text-white",
-        bubbleCard: "bg-rose-700/40 border-rose-400/30 text-white",
+        bg: "bg-gradient-to-r from-[#e11d48] to-[#f43f5e]",
+        hoverBg: "hover:opacity-90",
+        text: "text-[#e11d48]",
+        border: "border-[#e11d48]",
+        ring: "focus-within:border-[#e11d48] focus-within:ring-[#e11d48]/20",
+        bubbleOutgoing: "bg-gradient-to-r from-[#e11d48] to-[#f43f5e] text-white shadow-xs",
+        bubbleCard: "bg-rose-800/80 border-rose-400 text-white",
         subtle: "text-rose-100",
-        accentHex: "#f43f5e",
+        accentHex: "#e11d48",
       };
     case "amber":
       return {
-        bg: "bg-amber-500",
-        hoverBg: "hover:bg-amber-600",
-        text: "text-amber-500",
-        border: "border-amber-500",
-        ring: "focus-within:border-amber-500 focus-within:ring-amber-500/20",
-        bubbleOutgoing: "bg-amber-500 text-white",
-        bubbleCard: "bg-amber-700/40 border-amber-400/30 text-white",
+        bg: "bg-[#d97706]",
+        hoverBg: "hover:bg-[#b45309]",
+        text: "text-[#d97706]",
+        border: "border-[#d97706]",
+        ring: "focus-within:border-[#d97706] focus-within:ring-[#d97706]/20",
+        bubbleOutgoing: "bg-[#d97706] text-white shadow-xs",
+        bubbleCard: "bg-amber-800/80 border-amber-400 text-white",
         subtle: "text-amber-100",
-        accentHex: "#f59e0b",
+        accentHex: "#d97706",
       };
     case "blue":
     default:
       return {
-        bg: "bg-[#007aff]",
-        hoverBg: "hover:bg-blue-600",
-        text: "text-[#007aff]",
-        border: "border-[#007aff]",
-        ring: "focus-within:border-[#007aff] focus-within:ring-[#007aff]/20",
-        bubbleOutgoing: "bg-[#007aff] text-white",
-        bubbleCard: "bg-blue-700/40 border-blue-400/30 text-white",
+        bg: "bg-[#0084ff]",
+        hoverBg: "hover:bg-[#0073e6]",
+        text: "text-[#0084ff]",
+        border: "border-[#0084ff]",
+        ring: "focus-within:border-[#0084ff] focus-within:ring-[#0084ff]/20",
+        bubbleOutgoing: "bg-[#0084ff] text-white shadow-xs",
+        bubbleCard: "bg-blue-600/90 border-blue-400 text-white",
         subtle: "text-blue-100",
-        accentHex: "#007aff",
+        accentHex: "#0084ff",
       };
   }
 }
@@ -81,16 +81,16 @@ export function getThemeClasses(theme: ThemeColor = "blue") {
 export function getWallpaperClass(wallpaper: ChatWallpaper = "default"): string {
   switch (wallpaper) {
     case "dots":
-      return "bg-[#f8f9fa] bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]";
+      return "bg-white bg-[radial-gradient(#e4e6eb_1.5px,transparent_1.5px)] [background-size:20px_20px]";
     case "grid":
-      return "bg-[#f8f9fa] bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px),linear-gradient(to_bottom,#e2e8f0_1px,transparent_1px)] [background-size:24px_24px]";
+      return "bg-white bg-[linear-gradient(to_right,#f0f2f5_1px,transparent_1px),linear-gradient(to_bottom,#f0f2f5_1px,transparent_1px)] [background-size:24px_24px]";
     case "warm":
-      return "bg-[#fbf9f5]";
+      return "bg-[#faf9f6]";
     case "dark":
-      return "bg-[#0f172a] text-slate-100";
+      return "bg-[#18191a] text-[#e4e6eb]";
     case "default":
     default:
-      return "bg-[#f8f9fa]";
+      return "bg-white";
   }
 }
 

@@ -1,39 +1,52 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: var(--font-roboto), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 @layer base {
   :root {
-    --bg-canvas: #f8fafc;
+    --bg-canvas: #ffffff;
     --bg-surface: #ffffff;
-    --border-subtle: #e2e8f0;
-    --text-main: #0f172a;
-    --text-muted: #64748b;
+    --border-subtle: #f0f2f5;
+    --text-main: #050505;
+    --text-muted: #65676b;
   }
 }
 
-/* Flat Clean Scrollbar */
+/* Crisp Clean Messenger Scrollbar */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+  background: #bcc0c4;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #8a8d91;
 }
 
-/* Clean Flat Canvas */
+/* Base Body Smoothing & Crisp Typography */
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Clean Canvas */
 .flat-canvas {
-  background-color: #f8fafc;
+  background-color: #ffffff;
 }
 
 /* Privacy Blur Shield */
 .privacy-blur {
-  filter: blur(18px) grayscale(30%);
+  filter: blur(20px) grayscale(40%);
   pointer-events: none;
   user-select: none;
   transition: filter 0.2s ease;
@@ -43,8 +56,8 @@
 .security-watermark-light {
   background-image: repeating-linear-gradient(
     -35deg,
-    rgba(15, 23, 42, 0.02),
-    rgba(15, 23, 42, 0.02) 90px,
+    rgba(255, 255, 255, 0.02),
+    rgba(255, 255, 255, 0.02) 90px,
     transparent 90px,
     transparent 180px
   );

@@ -18,8 +18,14 @@ export type SocketAction =
   | { type: "KEY_ROTATION"; newVersion: number; senderId: string }
   | { type: "VIEW_ONCE_OPENED"; messageId: string }
   | { type: "TOGGLE_PIN"; messageId: string; isPinned: boolean }
+  | { type: "REACTION"; messageId: string; emoji: string; userId: string }
   | { type: "WIPE_ALL"; senderId: string }
-  | { type: "USER_PRESENCE"; userId: string; status: "online" | "offline" };
+  | { type: "USER_PRESENCE"; userId: string; status: "online" | "offline" }
+  | { type: "FETCH_MESSAGES"; userId: string }
+  | { type: "SYNC_MESSAGES"; messages: any[]; userId?: string }
+  | { type: "SAVE_SETTINGS"; userId: string; settings: any }
+  | { type: "SYNC_SETTINGS"; settings: any; userId?: string }
+  | { type: "SETTINGS_UPDATED"; userId: string; settings: any };
 
 type SocketListener = (action: SocketAction) => void;
 type StatusListener = (status: SocketStatus) => void;
@@ -49,6 +55,14 @@ class SecureWebSocketClient {
     this.currentUserId = userId;
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.sendRaw({ type: "REGISTER", userId });
+      this.sendRaw({ type: "FETCH_MESSAGES", userId });
+    }
+  }
+
+  public requestMessageSync(userId: string) {
+    this.currentUserId = userId;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.sendRaw({ type: "FETCH_MESSAGES", userId });
     }
   }
 
@@ -72,9 +86,10 @@ class SecureWebSocketClient {
         this.reconnectAttempts = 0;
         this.setStatus("connected");
 
-        // Register user identity if already known
+        // Register user identity and sync messages if already known
         if (this.currentUserId) {
           this.sendRaw({ type: "REGISTER", userId: this.currentUserId });
+          this.sendRaw({ type: "FETCH_MESSAGES", userId: this.currentUserId });
         }
 
         // Start heartbeat ping

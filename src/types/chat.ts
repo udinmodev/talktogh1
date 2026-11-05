@@ -13,7 +13,7 @@ export interface User {
 }
 
 
-export type MessageStatus = "sending" | "sent" | "delivered" | "read";
+export type MessageStatus = "sending" | "sent" | "delivered" | "read" | "error";
 
 export interface LinkMetadata {
   url: string;

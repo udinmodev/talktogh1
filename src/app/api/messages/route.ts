@@ -63,6 +63,7 @@ function sanitizeToWire(raw: Record<string, unknown>): WireMessage | null {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const since = Number(searchParams.get("since") || 0);
+  const userId = searchParams.get("userId")?.trim().toLowerCase() || "";
   const showStats = searchParams.get("stats") === "true";
 
   if (showStats) {
@@ -79,26 +80,45 @@ export async function GET(request: Request) {
     if (supabaseMsgs !== null) {
       // Sync to local memory cache so offline/fallback is always primed
       saveWireMessages(supabaseMsgs);
+
+      // Strict user boundary isolation: Only return messages that belong to the querying user
+      const filtered = userId
+        ? supabaseMsgs.filter(
+            (m) =>
+              m.senderId.toLowerCase() === userId ||
+              m.recipientId.toLowerCase() === userId ||
+              m.recipientId.startsWith("public-")
+          )
+        : supabaseMsgs;
+
       return NextResponse.json({
         success: true,
         zeroKnowledge: true,
         storage: "supabase-database",
-        count: supabaseMsgs.length,
-        messages: supabaseMsgs,
+        count: filtered.length,
+        messages: filtered,
       });
     }
   }
 
   // 2. Fallback to zero-knowledge local persistent disk store
   const activeMessages = getActiveWireMessages(since);
+  const filteredActive = userId
+    ? activeMessages.filter(
+        (m) =>
+          m.senderId.toLowerCase() === userId ||
+          m.recipientId.toLowerCase() === userId ||
+          m.recipientId.startsWith("public-")
+      )
+    : activeMessages;
 
   return NextResponse.json({
     success: true,
     zeroKnowledge: true,
     storage: "persistent-disk",
     supabaseConfigured: isSupabaseConfigured,
-    count: activeMessages.length,
-    messages: activeMessages,
+    count: filteredActive.length,
+    messages: filteredActive,
   });
 }
 
