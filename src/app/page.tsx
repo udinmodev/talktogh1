@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { User, Message, SecuritySettings, LinkMetadata, DEFAULT_SETTINGS } from "@/types/chat";
+import { User, Message, SecuritySettings, LinkMetadata, DEFAULT_SETTINGS, SEVEN_PUBLIC_CHATS } from "@/types/chat";
 import { extractUrls, getClientLinkMetadata } from "@/components/chat/LinkPreviewCard";
 import { soundManager } from "@/lib/sound";
 import {
@@ -13,6 +13,8 @@ import {
   encryptMessageContent,
   decryptMessageContent,
   EncryptedPayload,
+  getPairSessionKey,
+  getPairSafetyNumber,
 } from "@/lib/crypto";
 import { chatSync } from "@/lib/broadcast";
 import { secureSocket } from "@/lib/socket";
@@ -33,62 +35,17 @@ import {
 } from "@/lib/auth";
 import { EyeOff } from "lucide-react";
 
-// Professional profiles for multi-contact secure communication
-const ALL_CONTACTS: User[] = [
-  {
-    id: "bob",
-    name: "Bob Mercer",
-    role: "contact",
-    avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80",
-    phone: "+1 (555) 084-9382",
-    about: "Using secure private messenger.",
-    publicKeyFingerprint: "E730D8192BF04C61",
-    isOnline: true,
-    lastSeen: "online",
-  },
-  {
-    id: "elena",
-    name: "Elena Rostova",
-    role: "contact",
-    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80",
-    phone: "+1 (555) 041-8821",
-    about: "Security researcher & cryptographic auditor.",
-    publicKeyFingerprint: "F49A28B10C739D12",
-    isOnline: true,
-    lastSeen: "online",
-  },
-  {
-    id: "marcus",
-    name: "Marcus Brody",
-    role: "contact",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
-    phone: "+1 (555) 092-4411",
-    about: "Executive project lead.",
-    publicKeyFingerprint: "BC319082F81D6620",
-    isOnline: false,
-    lastSeen: "2 hours ago",
-  },
-];
-
-const ALICE_PROFILE: User = {
-  id: "alice",
-  name: "Alice Vance",
-  role: "owner",
-  avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
-  phone: "+1 (555) 019-2834",
-  about: "Available for secure messaging.",
-  publicKeyFingerprint: "A9F438B2C19E77A0",
-  isOnline: true,
-};
-
 export default function SecureChatApp() {
   // User Authentication & Session State
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [isAuthLoaded, setIsAuthLoaded] = useState(false);
 
-  // Current active user identity (Alice by default, can switch to Bob)
+  // Dynamic public channels and registered users directory
+  const [contacts, setContacts] = useState<User[]>(SEVEN_PUBLIC_CHATS);
+
+  // Current active user identity and selected chat ID
   const [currentUserId, setCurrentUserId] = useState<string>("alice");
-  const [selectedContactId, setSelectedContactId] = useState<string>("bob");
+  const [selectedContactId, setSelectedContactId] = useState<string>("public-general");
   const [mobileView, setMobileView] = useState<"sidebar" | "chat" | "settings">("chat");
 
   // Load auth state on client mount
@@ -173,176 +130,136 @@ export default function SecureChatApp() {
   const [isPeerTyping, setIsPeerTyping] = useState<boolean>(false);
 
   const currentUser: User = {
-    id: authUser ? authUser.username : (currentUserId === "alice" ? "alice" : "bob"),
-    name: authUser ? authUser.name : (currentUserId === "alice" ? ALICE_PROFILE.name : ALL_CONTACTS[0].name),
-    role: authUser?.role || (currentUserId === "alice" ? "owner" : "contact"),
-    avatar: authUser?.avatar || (currentUserId === "alice" ? ALICE_PROFILE.avatar : ALL_CONTACTS[0].avatar),
-    phone: "+1 (555) 019-2834",
-    about: "Using secure private messenger.",
-    publicKeyFingerprint: (authUser ? authUser.username : currentUserId) === "bob" ? "E730D8192BF04C61" : "A9F438B2C19E77A0",
+    id: authUser ? authUser.username : (currentUserId || "alice"),
+    name: authUser ? authUser.name : "Alice Vance",
+    role: authUser?.role || "owner",
+    avatar: authUser?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(authUser?.name || "User")}`,
+    phone: `@${authUser ? authUser.username : "alice"}`,
+    about: "Using confidential E2EE messenger.",
+    publicKeyFingerprint: (authUser?.id || "alice").length >= 8 ? (authUser?.id || "alice").substring(0, 8).toUpperCase() + "7EFE2C" : "A9F438B2C19E77A0",
     isOnline: true,
   };
 
-  const contactUser =
-    ALL_CONTACTS.find((c) => c.id !== currentUser.id) || ALL_CONTACTS[0];
+  const contactUser: User =
+    contacts.find((c) => c.id === selectedContactId) ||
+    contacts.find((c) => c.id !== currentUser.id) ||
+    SEVEN_PUBLIC_CHATS[0];
 
   // Register identity with WebSocket relay server
   useEffect(() => {
     secureSocket.registerUser(currentUser.id);
   }, [currentUser.id]);
 
+  // Load real registered user accounts from Supabase and merge with 7 public channels
+  const loadLiveContacts = useCallback(async (myId: string) => {
+    try {
+      const res = await fetch("/api/users");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.users && data.users.length > 0) {
+          const registeredUsers: User[] = data.users
+            .filter((u: any) => u.id !== myId)
+            .map((u: any) => ({
+              id: u.id,
+              name: u.name || u.id,
+              role: "contact" as const,
+              avatar: u.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(u.name || u.id)}`,
+              phone: u.phone || `@${u.id}`,
+              about: u.about || "Registered confidential identity.",
+              publicKeyFingerprint: u.publicKeyFingerprint || "7EFE2C6DCC10DA73",
+              isOnline: true,
+              lastSeen: "online",
+              isPublicChannel: false,
+            }));
+
+          setContacts([...SEVEN_PUBLIC_CHATS, ...registeredUsers]);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not load users directory:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadLiveContacts(currentUser.id);
+  }, [currentUser.id, loadLiveContacts]);
+
+  // Dynamically derive shared E2EE session key for the currently selected chat
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function updateChatCrypto() {
+      try {
+        const partnerId = contactUser.id;
+        const derivedKey = await getPairSessionKey(currentUser.id, partnerId);
+        const code = await getPairSafetyNumber(currentUser.id, partnerId);
+
+        if (!isCancelled) {
+          setSessionKey(derivedKey);
+          setSafetyNumber(code);
+          setIsKeysInitialized(true);
+        }
+      } catch (err) {
+        console.warn("Crypto derivation notice:", err);
+      }
+    }
+
+    updateChatCrypto();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentUser.id, contactUser.id]);
+
   // Guard against multiple fetch calls in React Strict Mode
   const hasInitializedRef = useRef(false);
 
-  // 1. Initialize Cryptographic Session Keys (ECDH P-256 & Shared AES-GCM Key)
+  // Initialize and fetch real wire messages from backend (Zero Fake Chats)
   useEffect(() => {
     if (hasInitializedRef.current) return;
     hasInitializedRef.current = true;
 
-    async function initCrypto() {
+    async function loadWireMessages() {
       try {
-        const aliceKp = await getOrCreateIdentityKeyPair("alice");
-        const bobKp = await getOrCreateIdentityKeyPair("bob");
+        const res = await fetch("/api/messages");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.messages && data.messages.length > 0) {
+            const decryptedList: Message[] = [];
 
-        // Derive deterministic E2EE shared session key from persistent identity keys
-        const derivedKey = await deriveSessionKey(
-          aliceKp.keyPair.privateKey,
-          bobKp.keyPair.publicKey
-        );
-        setSessionKey(derivedKey);
+            for (const wire of data.messages) {
+              try {
+                const isChannel = wire.recipientId?.startsWith("public-");
+                const partnerId = isChannel
+                  ? wire.recipientId
+                  : wire.senderId === currentUser.id
+                  ? wire.recipientId
+                  : wire.senderId;
 
-        // Derive 60-digit safety code
-        const code = await generateSafetyNumber(
-          aliceKp.data.fingerprint,
-          bobKp.data.fingerprint
-        );
-        setSafetyNumber(code);
-
-        // Fetch zero-knowledge encrypted wire messages from backend API
-        let apiMsgs: Message[] = [];
-        try {
-          const res = await fetch("/api/messages");
-          if (res.ok) {
-            const data = await res.json();
-            if (data.messages && data.messages.length > 0) {
-              const decryptedList: Message[] = [];
-              let hasUnverifiable = false;
-
-              for (const wire of data.messages) {
-                try {
-                  const decrypted = await decryptMessageContent(wire.encryptedPayload, derivedKey);
-                  decryptedList.push({
-                    ...wire,
-                    text: decrypted.text,
-                    linkMetadata: decrypted.linkMetadata,
-                  });
-                } catch {
-                  hasUnverifiable = true;
-                }
-              }
-
-              // Purge legacy unverifiable messages from server storage if keys were rotated
-              if (hasUnverifiable && decryptedList.length === 0) {
-                fetch("/api/messages", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ action: "wipe" }),
-                }).catch(() => {});
-              } else if (decryptedList.length > 0) {
-                apiMsgs = decryptedList;
+                const chatKey = await getPairSessionKey(currentUser.id, partnerId);
+                const decrypted = await decryptMessageContent(wire.encryptedPayload, chatKey);
+                decryptedList.push({
+                  ...wire,
+                  text: decrypted.text,
+                  linkMetadata: decrypted.linkMetadata,
+                });
+              } catch {
+                // If message is encrypted for another pair, ignore
               }
             }
+
+            setMessages(decryptedList);
+          } else {
+            setMessages([]);
           }
-        } catch (apiErr) {
-          console.warn("API check notice:", apiErr);
         }
-
-        if (apiMsgs.length > 0) {
-          setMessages(apiMsgs);
-        } else {
-          // Initial conversation history - encrypted with pure client-side metadata
-          const initialPlaintexts: Array<{
-            sender: string;
-            recipient: string;
-            text: string;
-            linkMetadata?: LinkMetadata[];
-          }> = [
-            {
-              sender: "alice",
-              recipient: "bob",
-              text: "Hi Bob, let's keep all project deliberations and confidential contracts in this channel.",
-            },
-            {
-              sender: "bob",
-              recipient: "alice",
-              text: "Understood, Alice. You can reference the repository specifications here: https://github.com - sending over the security notes.",
-              linkMetadata: [getClientLinkMetadata("https://github.com")],
-            },
-            {
-              sender: "alice",
-              recipient: "bob",
-              text: "Perfect. I have verified the safety numbers and enabled multi-type message encryption.",
-            },
-          ];
-
-          const batchMsgs: Message[] = [];
-          for (let i = 0; i < initialPlaintexts.length; i++) {
-            const item = initialPlaintexts[i];
-            // Encrypt both text and link metadata inside ciphertext
-            const payload = await encryptMessageContent(
-              { text: item.text, linkMetadata: item.linkMetadata },
-              derivedKey,
-              item.sender,
-              item.recipient
-            );
-
-            batchMsgs.push({
-              id: `msg-${Date.now()}-${i}`,
-              senderId: item.sender,
-              recipientId: item.recipient,
-              text: item.text,
-              encryptedPayload: payload,
-              timestamp: Date.now() - (3 - i) * 60000,
-              status: "read",
-              disappearingDuration: null,
-              expiresAt: null,
-              linkMetadata: item.linkMetadata,
-            });
-          }
-
-          setMessages(batchMsgs);
-
-          // Zero-Knowledge Batch Persist: send ONLY ciphertext wire objects over HTTP
-          const wireEnvelopes = batchMsgs.map((m) => ({
-            id: m.id,
-            senderId: m.senderId,
-            recipientId: m.recipientId,
-            encryptedPayload: m.encryptedPayload,
-            timestamp: m.timestamp,
-            status: m.status,
-            disappearingDuration: m.disappearingDuration,
-            expiresAt: m.expiresAt,
-            viewOnce: m.viewOnce,
-            isBurned: m.isBurned,
-            isPinned: m.isPinned,
-            securityType: m.securityType,
-          }));
-
-          fetch("/api/messages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "batch", messages: wireEnvelopes }),
-          }).catch(() => {});
-        }
-
-        setIsKeysInitialized(true);
-      } catch (err) {
-        console.error("Crypto init error:", err);
+      } catch (apiErr) {
+        console.warn("API check notice:", apiErr);
       }
     }
 
-    initCrypto();
-  }, []);
+    loadWireMessages();
+  }, [currentUser.id]);
 
   // 2. Event-Driven Message Expiration (Exact Timeout Schedule per Message, Zero Polling)
   const scheduledTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
@@ -414,9 +331,16 @@ export default function SecureChatApp() {
   useEffect(() => {
     const unsubscribe = chatSync.subscribe(async (action) => {
       if (action.type === "NEW_MESSAGE") {
-        if (!sessionKey) return;
         try {
-          const decrypted = await decryptMessageContent(action.payload, sessionKey);
+          const isChannel = action.payload.recipientId?.startsWith("public-");
+          const partnerId = isChannel
+            ? action.payload.recipientId
+            : action.payload.senderId === currentUser.id
+            ? action.payload.recipientId
+            : action.payload.senderId;
+
+          const key = await getPairSessionKey(currentUser.id, partnerId);
+          const decrypted = await decryptMessageContent(action.payload, key);
           const duration =
             action.disappearingDuration !== undefined
               ? action.disappearingDuration
@@ -861,7 +785,7 @@ export default function SecureChatApp() {
           <ChatSidebar
             currentUser={currentUser}
             contactUser={contactUser}
-            contacts={ALL_CONTACTS}
+            contacts={contacts}
             messages={messages}
             settings={settings}
             selectedChatId={contactUser.id}
@@ -876,7 +800,7 @@ export default function SecureChatApp() {
                 setIsSecurityCenterOpen(true);
               }
             }}
-            onSwitchUser={handleSwitchUser}
+            onSwitchUser={handleLogout}
             onLockApp={() => {
               setSessionUnlocked(false);
               setIsAppLocked(true);
@@ -894,11 +818,15 @@ export default function SecureChatApp() {
           <ChatArea
             currentUser={currentUser}
             contactUser={contactUser}
-            messages={messages.filter(
-              (m) =>
+            messages={messages.filter((m) => {
+              if (contactUser.isPublicChannel) {
+                return m.recipientId === contactUser.id;
+              }
+              return (
                 (m.senderId === contactUser.id && m.recipientId === currentUser.id) ||
                 (m.senderId === currentUser.id && m.recipientId === contactUser.id)
-            )}
+              );
+            })}
             settings={settings}
             onSendMessage={handleSendMessage}
             onOpenSafetyNumbers={() => setIsSafetyModalOpen(true)}

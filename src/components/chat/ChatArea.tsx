@@ -22,6 +22,7 @@ import {
   Pin,
   PinOff,
   Link2,
+  Globe,
 } from "lucide-react";
 import LinkPreviewCard, { extractUrls, formatMessageWithLinks } from "./LinkPreviewCard";
 import { getThemeClasses, getWallpaperClass, getFontSizeClass, getBubbleRadius } from "@/lib/theme";
@@ -317,6 +318,90 @@ export function ChatArea({
             Today
           </span>
         </div>
+
+        {/* Zero State Intro Card when no messages yet */}
+        {messages.length === 0 && (
+          <div className="py-12 px-4 flex flex-col items-center justify-center text-center max-w-md mx-auto animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center mb-3">
+              {contactUser.isPublicChannel ? (
+                <Globe className="h-8 w-8 text-blue-500" />
+              ) : (
+                <ShieldCheck className="h-8 w-8 text-emerald-500" />
+              )}
+            </div>
+
+            <h3 className="text-base font-bold text-slate-900 mb-1">
+              {contactUser.name}
+            </h3>
+
+            <p className="text-xs font-mono text-slate-500 mb-2">
+              {contactUser.isPublicChannel ? contactUser.phone : `@${contactUser.id}`}
+            </p>
+
+            <p className="text-xs text-slate-500 leading-relaxed mb-6">
+              {contactUser.isPublicChannel
+                ? contactUser.about
+                : `Direct confidential conversation with @${contactUser.id}. Messages are zero-knowledge encrypted and secured with AES-256 wire cryptography.`}
+            </p>
+
+            {/* 7 Message Types Quick Action Starters */}
+            <div className="w-full bg-white border border-slate-200 rounded-2xl p-3 text-left">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                Available Public Chat Features (7 Types)
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => onSendMessage("👋 Hello! Secure connection established.")}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <span>💬</span>
+                  <span className="truncate">Say Hello</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <span>📷</span>
+                  <span className="truncate">Photo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <span>📄</span>
+                  <span className="truncate">Document</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSendMessage("⏱️ Confidential update with auto self-destruct.", undefined, undefined, false, 30)}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <span>⏱️</span>
+                  <span className="truncate">30s Expire</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSendMessage("👁️ View-once secret note: burned upon reading.", undefined, undefined, true, null)}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <span>👁️</span>
+                  <span className="truncate">View Once</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSendMessage("Verified reference: https://github.com")}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <span>🔗</span>
+                  <span className="truncate">Rich Link</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Message Stream */}
         {messages.map((msg) => {

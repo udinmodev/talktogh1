@@ -382,3 +382,22 @@ export async function generateSafetyNumber(pubKeyA: string, pubKeyB: string): Pr
   }
   return blocks.join(" ");
 }
+
+/**
+ * Deterministically derive shared session key for any pair of user identities / public channels
+ */
+export async function getPairSessionKey(myUserId: string, peerUserId: string): Promise<CryptoKey> {
+  const myKp = await getOrCreateIdentityKeyPair(myUserId);
+  const peerKp = await getOrCreateIdentityKeyPair(peerUserId);
+  return await deriveSessionKey(myKp.keyPair.privateKey, peerKp.keyPair.publicKey);
+}
+
+/**
+ * Deterministically generate 60-digit safety code for any pair of user identities
+ */
+export async function getPairSafetyNumber(myUserId: string, peerUserId: string): Promise<string> {
+  const myKp = await getOrCreateIdentityKeyPair(myUserId);
+  const peerKp = await getOrCreateIdentityKeyPair(peerUserId);
+  return await generateSafetyNumber(myKp.data.fingerprint, peerKp.data.fingerprint);
+}
+

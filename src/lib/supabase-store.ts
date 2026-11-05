@@ -287,3 +287,35 @@ export async function upsertSupabasePublicKey(entry: {
     return false;
   }
 }
+
+export interface SupabaseUserAccountRow {
+  id: string;
+  username: string;
+  name: string;
+  avatar: string;
+  has_pin: boolean;
+  biometric_enabled: boolean;
+  biometric_credential_id?: string | null;
+  created_at: string;
+}
+
+/**
+ * Fetch all registered user accounts from Supabase
+ */
+export async function fetchSupabaseUserAccounts(): Promise<SupabaseUserAccountRow[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  try {
+    const { data, error } = await client
+      .from("user_accounts")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error || !data) return null;
+    return data as SupabaseUserAccountRow[];
+  } catch {
+    return null;
+  }
+}
+
