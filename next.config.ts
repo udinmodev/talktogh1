@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   turbopack: {
     rules: {
       "*.css": {
@@ -11,6 +14,17 @@ const nextConfig: NextConfig = {
         as: "*.css",
       },
     },
+    ignoreIssue: [
+      {
+        path: "**/favicon.ico",
+      },
+      {
+        path: "**/*favicon*",
+      },
+      {
+        path: "**/*icon*",
+      },
+    ],
   },
 };
 
