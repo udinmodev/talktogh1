@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
     if (!isSupabaseConfigured) {
       return NextResponse.json(
-        { success: false, error: "Supabase database not configured." },
+        { success: false, error: "Database server not configured." },
         { status: 500 }
       );
     }
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: "Security credentials saved directly to Supabase.",
+      message: "Security credentials saved securely.",
       pinSet: true,
       biometricEnabled: Boolean(biometricEnabled),
     });

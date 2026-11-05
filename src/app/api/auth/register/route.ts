@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
     if (!isSupabaseConfigured) {
       return NextResponse.json(
-        { success: false, error: "Supabase database is not configured." },
+        { success: false, error: "Database server is not configured." },
         { status: 500 }
       );
     }

@@ -78,7 +78,7 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
               </h1>
               <p className="text-sm text-[#65676b] mt-1 font-normal">
                 {mode === "login"
-                  ? "Connect with your friends on Messenger"
+                  ? "Connect with your friends on TalkTogether"
                   : "Private messaging with end-to-end encryption"}
               </p>
             </div>
@@ -227,7 +227,7 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
           {/* Minimal Reassurance */}
           <div className="text-center mt-5">
             <span className="text-xs text-[#8a8d91]">
-              Zero-Knowledge wire encryption powered by Supabase.
+              Zero-Knowledge wire encryption with hardware-level privacy guard.
             </span>
           </div>
         </div>
@@ -243,7 +243,7 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
           <span className="hover:text-[#050505] cursor-pointer">Privacy & Terms</span>
         </div>
         <div className="text-[#bcc0c4] text-[11px]">
-          © 2026 MESSENGER · REALTIME ENCRYPTED MESSAGING
+          © 2026 TALKTOGETHER · REALTIME ENCRYPTED MESSAGING
         </div>
       </footer>
     </div>

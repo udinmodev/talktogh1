@@ -80,7 +80,7 @@ export function AppLockScreen({
               <Shield className="h-4 w-4 text-white" />
             </div>
             <span className="font-bold tracking-tight text-[#050505] text-base">
-              Messenger Security
+              TalkTogether Security
             </span>
           </div>
 

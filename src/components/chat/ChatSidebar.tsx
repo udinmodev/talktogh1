@@ -145,7 +145,7 @@ export function ChatSidebar({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search Messenger"
+            placeholder="Search TalkTogether"
             className="w-full bg-transparent text-sm text-[#050505] placeholder:text-[#65676b] focus:outline-none"
           />
         </div>

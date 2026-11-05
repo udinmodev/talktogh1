@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
     if (!isSupabaseConfigured) {
       return NextResponse.json(
-        { success: false, error: "Supabase database is not configured." },
+        { success: false, error: "Database server is not configured." },
         { status: 500 }
       );
     }
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const client = getSupabaseClient();
     if (!client) {
       return NextResponse.json(
-        { success: false, error: "Failed to connect to Supabase." },
+        { success: false, error: "Failed to connect to database." },
         { status: 500 }
       );
     }

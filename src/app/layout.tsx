@@ -4,7 +4,7 @@ import "./globals.css";
 import RootChatShell from "@/components/chat/RootChatShell";
 
 export const metadata: Metadata = {
-  title: "CipherChat | Modern End-to-End Encrypted Messenger",
+  title: "TalkTogether | Modern End-to-End Encrypted Messenger",
   description: "Private messaging application with zero-knowledge end-to-end encryption, disappearing messages, and privacy security controls.",
 };
 

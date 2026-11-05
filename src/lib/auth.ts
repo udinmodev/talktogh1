@@ -150,11 +150,11 @@ export async function loginUser(
     return { success: false, error: "Incorrect password. Please try again." };
   }
 
-  return { success: false, error: "Identity not found in Supabase. Please sign up." };
+  return { success: false, error: "Account not found. Please sign up to create your account." };
 }
 
 /**
- * Register a new user directly in production Supabase
+ * Register a new user directly in production database
  */
 export async function registerUser(
   username: string,
@@ -190,10 +190,10 @@ export async function registerUser(
       return { success: false, error: data.error };
     }
   } catch (err) {
-    console.warn("Supabase register API notice:", err);
+    console.warn("Register API notice:", err);
   }
 
-  return { success: false, error: "Failed to register in Supabase. Please try again." };
+  return { success: false, error: "Failed to register account. Please try again." };
 }
 
 /**

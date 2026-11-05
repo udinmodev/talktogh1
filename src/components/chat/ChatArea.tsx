@@ -545,7 +545,7 @@ export function ChatArea({
             </p>
 
             <p className="text-xs text-[#65676b] leading-relaxed mb-5">
-              You&apos;re connected on Messenger. Direct end-to-end encrypted conversation secured with AES-256-GCM wire cryptography.
+              You&apos;re connected on TalkTogether. Direct end-to-end encrypted conversation secured with AES-256-GCM wire cryptography.
             </p>
 
             {/* Messenger Wave / Say Hello Action */}

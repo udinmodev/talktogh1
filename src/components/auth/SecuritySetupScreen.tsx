@@ -106,7 +106,7 @@ export function SecuritySetupScreen({ user, onComplete }: SecuritySetupScreenPro
                 <Shield className="h-4 w-4 text-white" />
               </div>
               <span className="font-bold tracking-tight text-[#050505] text-base">
-                Messenger Security
+                TalkTogether Security
               </span>
             </div>
 
@@ -277,7 +277,7 @@ export function SecuritySetupScreen({ user, onComplete }: SecuritySetupScreenPro
       </main>
 
       <footer className="text-center text-xs text-[#8a8d91]">
-        © 2026 MESSENGER · HARDWARE TWO-FACTOR SECURITY
+        © 2026 TALKTOGETHER · HARDWARE TWO-FACTOR SECURITY
       </footer>
     </div>
   );
