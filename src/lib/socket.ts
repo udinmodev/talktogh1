@@ -76,9 +76,27 @@ class SecureWebSocketClient {
     this.setStatus(this.reconnectAttempts > 0 ? "reconnecting" : "connecting");
 
     try {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const hostname = window.location.hostname || "localhost";
-      const wsUrl = `${protocol}//${hostname}:3001`;
+      const isLocal =
+        typeof window !== "undefined" &&
+        (window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1" ||
+          window.location.hostname.startsWith("192.168."));
+
+      const configuredWs = process.env.NEXT_PUBLIC_WS_URL;
+      let wsUrl = "";
+
+      if (configuredWs) {
+        wsUrl = configuredWs;
+      } else if (isLocal) {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const hostname = window.location.hostname || "localhost";
+        wsUrl = `${protocol}//${hostname}:3001`;
+      } else {
+        // In cloud / serverless production (e.g. Vercel) where port :3001 is not exposed,
+        // message sync and events are handled via Realtime database.
+        this.setStatus("connected");
+        return;
+      }
 
       this.ws = new WebSocket(wsUrl);
 

@@ -131,7 +131,19 @@ export async function verifyBiometric(
   credentialId?: string
 ): Promise<{ success: boolean; error?: string }> {
   if (typeof window === "undefined" || !navigator.credentials) {
-    return { success: true };
+    return { success: false, error: "Credentials API unavailable" };
+  }
+
+  // Check if platform authenticator (Touch ID, Windows Hello) is actually available
+  try {
+    if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
+      const isAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      if (!isAvailable) {
+        return { success: false, error: "Platform authenticator unavailable" };
+      }
+    }
+  } catch {
+    return { success: false, error: "Authenticator check failed" };
   }
 
   try {
@@ -163,8 +175,8 @@ export async function verifyBiometric(
     }
 
     return { success: true };
-  } catch (err: unknown) {
-    console.warn("Biometric verification challenge notice:", err);
+  } catch {
+    // Silent catch so unconfigured platform biometrics don't flood user console
     return { success: false, error: "Biometric prompt cancelled or unavailable" };
   }
 }
