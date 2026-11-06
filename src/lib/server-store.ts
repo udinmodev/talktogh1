@@ -159,6 +159,30 @@ export function updateStatusWireMessage(messageId: string, status: WireMessage["
 }
 
 /**
+ * Batch mark all messages from a sender as read
+ */
+export function markAllReadWireMessages(recipientId: string, senderId: string): boolean {
+  const cleanRecipient = recipientId.split("@")[0].toLowerCase();
+  const cleanSender = senderId.split("@")[0].toLowerCase();
+  const store = getStore();
+  let changed = false;
+  for (const m of store) {
+    if (
+      m.recipientId === cleanRecipient &&
+      m.senderId === cleanSender &&
+      m.status !== "read"
+    ) {
+      m.status = "read";
+      changed = true;
+    }
+  }
+  if (changed) {
+    flushToDisk(store);
+  }
+  return changed;
+}
+
+/**
  * Add emoji reaction to a message
  */
 export function addReactionWireMessage(messageId: string, userId: string, emoji: string): boolean {
@@ -169,6 +193,36 @@ export function addReactionWireMessage(messageId: string, userId: string, emoji:
       ...(target.reactions || {}),
       [userId]: emoji,
     };
+    flushToDisk(store);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Delete a wire message permanently
+ */
+export function deleteWireMessage(messageId: string): boolean {
+  const store = getStore();
+  const idx = store.findIndex((m) => m.id === messageId);
+  if (idx >= 0) {
+    store.splice(idx, 1);
+    flushToDisk(store);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Edit a wire message's encrypted payload
+ */
+export function editWireMessage(messageId: string, encryptedPayload: WireMessage["encryptedPayload"]): boolean {
+  const store = getStore();
+  const target = store.find((m) => m.id === messageId);
+  if (target) {
+    target.encryptedPayload = encryptedPayload;
+    target.isEdited = true;
+    target.editedAt = Date.now();
     flushToDisk(store);
     return true;
   }

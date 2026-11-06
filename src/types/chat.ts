@@ -42,6 +42,8 @@ export interface Message {
   viewOnce?: boolean; // Signal / WhatsApp style View-Once message
   isBurned?: boolean; // When opened, immediately destroyed
   isPinned?: boolean; // Pinned message feature
+  isEdited?: boolean; // Message edit indicator
+  editedAt?: number | null; // Timestamp when message was edited
   securityType?: "standard" | "disappearing" | "view_once" | "confidential";
   linkMetadata?: LinkMetadata[];
 }

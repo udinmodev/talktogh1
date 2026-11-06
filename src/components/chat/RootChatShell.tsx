@@ -255,6 +255,8 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
   const [isPeerTyping, setIsPeerTyping] = useState<boolean>(false);
   const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(true);
+  const realtimeChannelRef = useRef<any>(null);
+  const peerTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentUser: User = {
     id: cleanCurrentId,
@@ -493,10 +495,48 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     const client = getSupabaseClient();
     if (!client) return;
 
-    const channelName = `realtime-chat-${currentUser.id}-${Date.now()}`;
+    const channelName = "realtime-chat-shared";
     const channel = client.channel(channelName);
+    realtimeChannelRef.current = channel;
 
     channel
+      .on("broadcast", { event: "typing" }, ({ payload }) => {
+        if (!payload) return;
+        const s = String(payload.senderId || "").split("@")[0].toLowerCase();
+        const r = String(payload.recipientId || "").split("@")[0].toLowerCase();
+        const current = String(currentUser.id || "").split("@")[0].toLowerCase();
+        const active = String(activeChatId || "").split("@")[0].toLowerCase();
+
+        if (s === active && (!r || r === current)) {
+          setIsPeerTyping(Boolean(payload.isTyping));
+          if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+          if (payload.isTyping) {
+            peerTypingTimeoutRef.current = setTimeout(() => {
+              setIsPeerTyping(false);
+            }, 3000);
+          }
+        }
+      })
+      .on("broadcast", { event: "seen" }, ({ payload }) => {
+        if (!payload) return;
+        const reader = String(payload.readerId || "").split("@")[0].toLowerCase();
+        const target = String(payload.senderId || "").split("@")[0].toLowerCase();
+        const current = String(currentUser.id || "").split("@")[0].toLowerCase();
+        const active = String(activeChatId || "").split("@")[0].toLowerCase();
+
+        if (reader === active && target === current) {
+          setMessages((prev) =>
+            prev.map((m) => {
+              const s = String(m.senderId || "").split("@")[0].toLowerCase();
+              const r = String(m.recipientId || "").split("@")[0].toLowerCase();
+              if (s === current && r === active && m.status !== "read") {
+                return { ...m, status: "read" };
+              }
+              return m;
+            })
+          );
+        }
+      })
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "wire_messages" },
@@ -576,16 +616,42 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "wire_messages" },
-        (payload) => {
+        async (payload) => {
           const updatedRow = payload.new as SupabaseWireRow;
           if (!updatedRow || !updatedRow.id) return;
           const wire = fromSupabaseRow(updatedRow);
+
+          let newText: string | undefined = undefined;
+          let newPayload = wire.encryptedPayload;
+          if (typeof newPayload === "string") {
+            try {
+              newPayload = JSON.parse(newPayload);
+            } catch {}
+          }
+
+          if (wire.isEdited && newPayload && newPayload.iv && newPayload.ciphertext) {
+            try {
+              const cleanSender = String(wire.senderId || "").split("@")[0].toLowerCase();
+              const cleanRecipient = String(wire.recipientId || "").split("@")[0].toLowerCase();
+              const cleanCurrent = String(currentUser.id || "").split("@")[0].toLowerCase();
+              const partnerId = cleanRecipient === cleanCurrent ? cleanSender : cleanRecipient;
+              const chatKey = await getPairSessionKey(cleanCurrent, partnerId);
+              const dec = await decryptMessageContent(newPayload, chatKey);
+              newText = dec.text;
+            } catch (err) {
+              console.warn("Realtime edit decrypt notice:", err);
+            }
+          }
 
           setMessages((prev) =>
             prev.map((m) => {
               if (m.id === wire.id) {
                 return {
                   ...m,
+                  text: newText !== undefined ? newText : m.text,
+                  encryptedPayload: newPayload || m.encryptedPayload,
+                  isEdited: wire.isEdited ?? m.isEdited,
+                  editedAt: wire.editedAt ?? m.editedAt,
                   status: (wire.status as Message["status"]) || m.status,
                   isPinned: wire.isPinned,
                   isBurned: wire.isBurned,
@@ -616,9 +682,10 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       .subscribe();
 
     return () => {
+      realtimeChannelRef.current = null;
       client.removeChannel(channel);
     };
-  }, [currentUser.id, settings.soundEffects, settings.disappearingTimer, loadLiveContacts]);
+  }, [currentUser.id, activeChatId, settings.soundEffects, settings.disappearingTimer, loadLiveContacts]);
 
   // Event-Driven Message Expiration
   const scheduledTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
@@ -752,8 +819,16 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
           prev.map((m) => (m.id === action.messageId ? { ...m, status: action.status } : m))
         );
       } else if (action.type === "TYPING_INDICATOR") {
-        if (action.senderId !== currentUserId) {
-          setIsPeerTyping(action.isTyping);
+        const s = String(action.senderId || "").split("@")[0].toLowerCase();
+        const active = String(activeChatId || "").split("@")[0].toLowerCase();
+        if (s === active) {
+          setIsPeerTyping(Boolean(action.isTyping));
+          if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+          if (action.isTyping) {
+            peerTypingTimeoutRef.current = setTimeout(() => {
+              setIsPeerTyping(false);
+            }, 3000);
+          }
         }
       } else if (action.type === "SYNC_MESSAGES" && Array.isArray(action.messages)) {
         processIncomingWireBatch(action.messages);
@@ -786,6 +861,22 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
         action.settings
       ) {
         setSettings((prev) => ({ ...prev, ...action.settings }));
+      } else if (action.type === "DELETE_MESSAGE") {
+        setMessages((prev) => prev.filter((m) => m.id !== action.messageId));
+      } else if (action.type === "EDIT_MESSAGE") {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === action.messageId
+              ? {
+                  ...m,
+                  text: action.newText,
+                  encryptedPayload: action.payload,
+                  isEdited: true,
+                  editedAt: Date.now(),
+                }
+              : m
+          )
+        );
       } else if (action.type === "WIPE_ALL") {
         setMessages([]);
       }
@@ -998,9 +1089,25 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
   const handleTyping = (isTyping: boolean) => {
     chatSync.broadcast({
       type: "TYPING_INDICATOR",
-      senderId: currentUser.id,
+      senderId: cleanCurrentId,
       isTyping,
     });
+
+    if (realtimeChannelRef.current) {
+      try {
+        realtimeChannelRef.current.send({
+          type: "broadcast",
+          event: "typing",
+          payload: {
+            senderId: cleanCurrentId,
+            recipientId: activeChatId,
+            isTyping,
+          },
+        });
+      } catch (err) {
+        console.warn("Typing broadcast notice:", err);
+      }
+    }
   };
 
   const handleAddReaction = (messageId: string, emoji: string) => {
@@ -1037,6 +1144,162 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     }).catch((err) => console.warn("Cloud message reaction notice:", err));
   };
 
+  const handleDeleteMessage = (messageId: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+
+    chatSync.broadcast({
+      type: "DELETE_MESSAGE",
+      messageId,
+    });
+
+    fetch("/api/messages", {
+      method: "POST",
+      headers: getInternalApiHeaders(),
+      body: JSON.stringify({ action: "delete", messageId }),
+    }).catch((err) => console.warn("Cloud message delete notice:", err));
+  };
+
+  const handleEditMessage = async (messageId: string, newText: string): Promise<boolean> => {
+    if (!newText.trim()) return false;
+    const targetMsg = messages.find((m) => m.id === messageId);
+    if (!targetMsg) return false;
+
+    let activeKey = sessionKey;
+    const myId = cleanCurrentId;
+    const targetId = (
+      targetMsg.recipientId === myId ? targetMsg.senderId : targetMsg.recipientId
+    ).split("@")[0].toLowerCase();
+
+    if (!activeKey) {
+      try {
+        activeKey = await getPairSessionKey(myId, targetId);
+      } catch (err) {
+        console.warn("Failed to derive key for edit:", err);
+      }
+    }
+    if (!activeKey) return false;
+
+    try {
+      const detectedUrls = extractUrls(newText);
+      const linkMetadata =
+        detectedUrls.length > 0
+          ? detectedUrls.slice(0, 3).map((u) => getClientLinkMetadata(u))
+          : undefined;
+
+      const payload = await encryptMessageContent(
+        {
+          text: newText.trim(),
+          linkMetadata,
+          mediaType: targetMsg.mediaType,
+          mediaUrl: targetMsg.mediaUrl,
+        },
+        activeKey,
+        targetMsg.senderId,
+        targetMsg.recipientId
+      );
+
+      const editedAt = Date.now();
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                text: newText.trim(),
+                encryptedPayload: payload,
+                linkMetadata,
+                isEdited: true,
+                editedAt,
+              }
+            : m
+        )
+      );
+
+      chatSync.broadcast({
+        type: "EDIT_MESSAGE",
+        messageId,
+        payload,
+        newText: newText.trim(),
+      });
+
+      fetch("/api/messages", {
+        method: "POST",
+        headers: getInternalApiHeaders(),
+        body: JSON.stringify({
+          action: "edit",
+          messageId,
+          encryptedPayload: payload,
+        }),
+      }).catch((err) => console.warn("Cloud message edit notice:", err));
+
+      return true;
+    } catch (err) {
+      console.error("Edit encryption failed:", err);
+      return false;
+    }
+  };
+
+  // Automatically mark incoming messages as read when active in chat
+  useEffect(() => {
+    if (!cleanCurrentId || cleanCurrentId === "user" || !activeChatId || activeChatId === "none") return;
+
+    const unreadIncoming = messages.filter(
+      (m) =>
+        String(m.senderId || "").split("@")[0].toLowerCase() === activeChatId &&
+        String(m.recipientId || "").split("@")[0].toLowerCase() === cleanCurrentId &&
+        m.status !== "read"
+    );
+
+    if (unreadIncoming.length === 0) return;
+
+    // 1. Update local state
+    setMessages((prev) =>
+      prev.map((m) => {
+        const s = String(m.senderId || "").split("@")[0].toLowerCase();
+        const r = String(m.recipientId || "").split("@")[0].toLowerCase();
+        if (s === activeChatId && r === cleanCurrentId && m.status !== "read") {
+          return { ...m, status: "read" };
+        }
+        return m;
+      })
+    );
+
+    // 2. Broadcast via Supabase Realtime so partner's ticks update to read instantly
+    if (realtimeChannelRef.current) {
+      try {
+        realtimeChannelRef.current.send({
+          type: "broadcast",
+          event: "seen",
+          payload: {
+            readerId: cleanCurrentId,
+            senderId: activeChatId,
+          },
+        });
+      } catch (err) {
+        console.warn("Seen broadcast notice:", err);
+      }
+    }
+
+    // 3. Broadcast to other tabs
+    unreadIncoming.forEach((msg) => {
+      chatSync.broadcast({
+        type: "MESSAGE_STATUS_UPDATE",
+        messageId: msg.id,
+        status: "read",
+      });
+    });
+
+    // 4. Persist to server / Supabase PostgreSQL
+    fetch("/api/messages", {
+      method: "POST",
+      headers: getInternalApiHeaders(),
+      body: JSON.stringify({
+        action: "read",
+        recipientId: cleanCurrentId,
+        senderId: activeChatId,
+      }),
+    }).catch((err) => console.warn("Cloud mark-read notice:", err));
+  }, [cleanCurrentId, activeChatId, messages]);
+
   const activeMessages = messages.filter((m) => {
     const s = String(m.senderId || "").split("@")[0].toLowerCase();
     const r = String(m.recipientId || "").split("@")[0].toLowerCase();
@@ -1065,6 +1328,8 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     networkError,
     sendMessage: handleSendMessage,
     burnMessage: handleBurnMessage,
+    deleteMessage: handleDeleteMessage,
+    editMessage: handleEditMessage,
     togglePinMessage: handleTogglePinMessage,
     addReaction: handleAddReaction,
     clearChat: () => setMessages([]),

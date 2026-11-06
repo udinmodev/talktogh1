@@ -24,6 +24,8 @@ export interface ChatContextType {
     viewOnce?: boolean,
     customDuration?: number | null
   ) => void;
+  editMessage: (messageId: string, newText: string) => Promise<boolean>;
+  deleteMessage: (messageId: string) => void;
   burnMessage: (messageId: string) => void;
   togglePinMessage: (messageId: string) => void;
   addReaction: (messageId: string, emoji: string) => void;

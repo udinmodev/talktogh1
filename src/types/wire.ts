@@ -25,6 +25,8 @@ export interface WireMessage {
   viewOnce?: boolean;
   isBurned?: boolean;
   isPinned?: boolean;
+  isEdited?: boolean;
+  editedAt?: number | null;
   securityType?: "standard" | "disappearing" | "view_once" | "confidential";
   mediaType?: "image" | "voice" | "doc";
   mediaUrl?: string;
@@ -43,6 +45,8 @@ export interface SupabaseWireRow {
   view_once: boolean;
   is_burned: boolean;
   is_pinned: boolean;
+  is_edited?: boolean;
+  edited_at?: number | null;
   security_type: string;
   media_type: string | null;
   media_url: string | null;
@@ -63,6 +67,8 @@ export function toSupabaseRow(m: WireMessage): SupabaseWireRow {
     view_once: Boolean(m.viewOnce),
     is_burned: Boolean(m.isBurned),
     is_pinned: Boolean(m.isPinned),
+    is_edited: Boolean(m.isEdited),
+    edited_at: m.editedAt ?? null,
     security_type: m.securityType || "standard",
     media_type: m.mediaType ?? null,
     media_url: m.mediaUrl ?? null,
@@ -97,6 +103,8 @@ export function fromSupabaseRow(row: SupabaseWireRow): WireMessage {
     viewOnce: Boolean(row.view_once),
     isBurned: Boolean(row.is_burned),
     isPinned: Boolean(row.is_pinned),
+    isEdited: Boolean(row.is_edited),
+    editedAt: row.edited_at ? Number(row.edited_at) : null,
     securityType: row.security_type as WireMessage["securityType"],
     mediaType: row.media_type as WireMessage["mediaType"],
     mediaUrl: row.media_url ?? undefined,

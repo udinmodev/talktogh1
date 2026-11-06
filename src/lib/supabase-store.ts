@@ -204,7 +204,20 @@ export async function updateStatusSupabaseWireMessage(
   messageId: string,
   status: WireMessage["status"]
 ): Promise<boolean> {
-  const client = getSupabaseClient();
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      await pool.query("UPDATE public.wire_messages SET status = $1 WHERE id = $2", [
+        status,
+        messageId,
+      ]);
+      return true;
+    } catch (e: any) {
+      console.warn("[Pool] Update status notice:", e.message);
+    }
+  }
+
+  const client = getSupabaseAdminClient() || getSupabaseClient();
   if (!client) return false;
 
   try {
@@ -212,6 +225,45 @@ export async function updateStatusSupabaseWireMessage(
       .from("wire_messages")
       .update({ status })
       .eq("id", messageId);
+
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Batch mark all messages from a sender as read in Supabase / PostgreSQL
+ */
+export async function markAllReadSupabaseWireMessages(
+  recipientId: string,
+  senderId: string
+): Promise<boolean> {
+  const cleanRecipient = recipientId.split("@")[0].toLowerCase();
+  const cleanSender = senderId.split("@")[0].toLowerCase();
+
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      await pool.query(
+        "UPDATE public.wire_messages SET status = 'read' WHERE recipient_id = $1 AND sender_id = $2 AND status != 'read'",
+        [cleanRecipient, cleanSender]
+      );
+      return true;
+    } catch (e: any) {
+      console.warn("[Pool] Mark all read notice:", e.message);
+    }
+  }
+
+  const client = getSupabaseAdminClient() || getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const { error } = await client
+      .from("wire_messages")
+      .update({ status: "read" })
+      .eq("recipient_id", cleanRecipient)
+      .eq("sender_id", cleanSender);
 
     return !error;
   } catch {
@@ -246,6 +298,65 @@ export async function addReactionSupabaseWireMessage(
       .update({ reactions: currentReactions })
       .eq("id", messageId);
 
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Delete a wire message from Supabase / PostgreSQL
+ */
+export async function deleteSupabaseWireMessage(messageId: string): Promise<boolean> {
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      await pool.query("DELETE FROM public.wire_messages WHERE id = $1", [messageId]);
+      return true;
+    } catch (e: any) {
+      console.warn("[Pool] Delete wire message notice:", e.message);
+    }
+  }
+
+  const client = getSupabaseAdminClient() || getSupabaseClient();
+  if (!client) return false;
+  try {
+    const { error } = await client.from("wire_messages").delete().eq("id", messageId);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Edit a wire message in Supabase / PostgreSQL
+ */
+export async function editSupabaseWireMessage(
+  messageId: string,
+  encryptedPayload: WireMessage["encryptedPayload"]
+): Promise<boolean> {
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      await pool.query(
+        `UPDATE public.wire_messages 
+         SET encrypted_payload = $1 
+         WHERE id = $2`,
+        [JSON.stringify(encryptedPayload), messageId]
+      );
+      return true;
+    } catch (e: any) {
+      console.warn("[Pool] Edit wire message notice:", e.message);
+    }
+  }
+
+  const client = getSupabaseAdminClient() || getSupabaseClient();
+  if (!client) return false;
+  try {
+    const { error } = await client
+      .from("wire_messages")
+      .update({ encrypted_payload: encryptedPayload })
+      .eq("id", messageId);
     return !error;
   } catch {
     return false;

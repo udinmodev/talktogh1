@@ -21,6 +21,8 @@ export default function ChatPage() {
     isOnline,
     sendMessage,
     burnMessage,
+    deleteMessage,
+    editMessage,
     togglePinMessage,
     addReaction,
     clearChat,
@@ -72,6 +74,8 @@ export default function ChatPage() {
       onTyping={sendTyping}
       isPeerTyping={isPeerTyping}
       onBurnMessage={burnMessage}
+      onDeleteMessage={deleteMessage}
+      onEditMessage={editMessage}
       onTogglePinMessage={togglePinMessage}
     />
   );

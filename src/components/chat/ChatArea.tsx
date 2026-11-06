@@ -31,6 +31,9 @@ import {
   X,
   AlertCircle,
   WifiOff,
+  Pencil,
+  Trash2,
+  Copy,
 } from "lucide-react";
 import LinkPreviewCard, { extractUrls, formatMessageWithLinks } from "./LinkPreviewCard";
 import { getThemeClasses, getWallpaperClass, getFontSizeClass, getBubbleRadius } from "@/lib/theme";
@@ -60,6 +63,8 @@ interface ChatAreaProps {
   isLoading?: boolean;
   isOnline?: boolean;
   onBurnMessage?: (messageId: string) => void;
+  onDeleteMessage?: (messageId: string) => void;
+  onEditMessage?: (messageId: string, newText: string) => void;
   onTogglePinMessage?: (messageId: string) => void;
 }
 
@@ -80,6 +85,8 @@ export function ChatArea({
   onTyping,
   isPeerTyping,
   onBurnMessage,
+  onDeleteMessage,
+  onEditMessage,
   onTogglePinMessage,
 }: ChatAreaProps) {
   const theme = getThemeClasses(settings?.themeColor || "emerald");
@@ -87,6 +94,7 @@ export function ChatArea({
   const fontSizeClass = getFontSizeClass(settings?.fontSize || "medium");
 
   const [inputText, setInputText] = useState("");
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -97,17 +105,105 @@ export function ChatArea({
 
   // Full-screen Image Preview / Lightbox state
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
+  // View-Once Confidential Modal state
+  const [activeViewOnceMsg, setActiveViewOnceMsg] = useState<Message | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
 
-  // Close lightbox on Escape key
+  // Context Menu Dropdown state (for right-click and long-press)
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    message: Message;
+  } | null>(null);
+
+  const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleMessageContextMenu = (e: React.MouseEvent, msg: Message) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const x = Math.min(e.clientX, window.innerWidth - 220);
+    const y = Math.min(e.clientY, window.innerHeight - 280);
+    setContextMenu({
+      x: Math.max(10, x),
+      y: Math.max(10, y),
+      message: msg,
+    });
+  };
+
+  const handleTouchStart = (e: React.TouchEvent, msg: Message) => {
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+    if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+    touchTimerRef.current = setTimeout(() => {
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        try {
+          navigator.vibrate(40);
+        } catch {}
+      }
+      const x = Math.min(touch.clientX, window.innerWidth - 220);
+      const y = Math.min(touch.clientY, window.innerHeight - 280);
+      setContextMenu({
+        x: Math.max(10, x),
+        y: Math.max(10, y),
+        message: msg,
+      });
+    }, 450);
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartPosRef.current) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+    const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+    if (dx > 10 || dy > 10) {
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+        touchTimerRef.current = null;
+      }
+    }
+  };
+
+  // Close lightbox, context menu, cancel edit, or View-Once modal on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setPreviewImage(null);
+        if (contextMenu) {
+          setContextMenu(null);
+        } else if (editingMessage) {
+          setEditingMessage(null);
+          setInputText("");
+        } else if (activeViewOnceMsg) {
+          const id = activeViewOnceMsg.id;
+          setActiveViewOnceMsg(null);
+          onBurnMessage?.(id);
+        } else if (previewImage) {
+          setPreviewImage(null);
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [contextMenu, editingMessage, activeViewOnceMsg, previewImage, onBurnMessage]);
+
+  // Dismiss context menu on click or scroll outside
+  useEffect(() => {
+    const handleDismiss = () => {
+      setContextMenu(null);
+    };
+    window.addEventListener("click", handleDismiss);
+    window.addEventListener("scroll", handleDismiss, true);
+    return () => {
+      window.removeEventListener("click", handleDismiss);
+      window.removeEventListener("scroll", handleDismiss, true);
+    };
   }, []);
 
   // Clear temporary inline errors
@@ -226,6 +322,14 @@ export function ChatArea({
     // Instant offline error check
     if (!isOnline || (typeof navigator !== "undefined" && !navigator.onLine)) {
       setInlineError("Internet connection cut down! You are offline. Message cannot be sent.");
+      return;
+    }
+
+    if (editingMessage) {
+      onEditMessage?.(editingMessage.id, inputText.trim());
+      setEditingMessage(null);
+      setInputText("");
+      onTyping(false);
       return;
     }
 
@@ -595,35 +699,72 @@ export function ChatArea({
               onMouseEnter={() => setActiveReactionMsgId(msg.id)}
               onMouseLeave={() => setActiveReactionMsgId(null)}
             >
-              {/* Quick Reaction Dock */}
+              {/* Quick Reaction & Actions Dock */}
               {activeReactionMsgId === msg.id && (
                 <div
                   className={`absolute -top-7 ${
                     isMe ? "right-2" : "left-2"
-                  } bg-white border border-[#e2e8f0] rounded-full px-2 py-0.5 flex items-center gap-1 z-30 shadow-md`}
+                  } bg-white border border-[#e2e8f0] rounded-full px-2 py-0.5 flex items-center gap-1 z-30 shadow-md text-[#65676b] animate-in fade-in zoom-in-95 duration-100`}
                 >
                   {quickReactions.map((emoji) => (
                     <button
                       key={emoji}
                       onClick={() => onAddReaction(msg.id, emoji)}
                       className="hover:scale-125 transition-transform text-xs p-0.5 cursor-pointer"
+                      title="React"
                     >
                       {emoji}
                     </button>
                   ))}
+
+                  {/* Actions for current user's messages */}
+                  {isMe && (
+                    <>
+                      <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+                      {!msg.viewOnce && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingMessage(msg);
+                            setInputText(msg.text);
+                          }}
+                          className="p-1 hover:bg-neutral-100 text-neutral-600 hover:text-neutral-900 rounded-full cursor-pointer transition-colors"
+                          title="Edit message"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm("Delete this message for everyone?")) {
+                            onDeleteMessage?.(msg.id);
+                          }
+                        }}
+                        className="p-1 hover:bg-rose-50 text-rose-500 hover:text-rose-600 rounded-full cursor-pointer transition-colors"
+                        title="Delete message"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
 
               {/* Natural Messenger Bubble */}
               <div
-                className={`relative max-w-[85%] md:max-w-[70%] ${fontSizeClass} leading-relaxed transition-all ${bubbleRadius} px-3.5 py-2 ${
+                onContextMenu={(e) => handleMessageContextMenu(e, msg)}
+                onTouchStart={(e) => handleTouchStart(e, msg)}
+                onTouchEnd={handleTouchEnd}
+                onTouchMove={handleTouchMove}
+                className={`relative max-w-[85%] md:max-w-[70%] ${fontSizeClass} leading-relaxed transition-all ${bubbleRadius} px-3.5 py-2 cursor-pointer ${
                   isMe
                     ? `${theme.bubbleOutgoing}`
                     : "bg-[#f0f2f5] text-[#050505]"
                 }`}
               >
                 {/* Media Preview - Openable Full Lightbox */}
-                {msg.mediaType === "image" && (
+                {msg.mediaType === "image" && !msg.viewOnce && (
                   <div className="mb-2">
                     {decryptedImages[msg.id] || msg.mediaUrl ? (
                       <div
@@ -674,7 +815,7 @@ export function ChatArea({
                   </div>
                 )}
 
-                {msg.mediaType === "doc" && (
+                {msg.mediaType === "doc" && !msg.viewOnce && (
                   <div
                     className={`mb-2 rounded-xl p-2.5 flex items-center gap-3 text-xs ${
                       isMe
@@ -696,7 +837,7 @@ export function ChatArea({
                   </div>
                 )}
 
-                {msg.mediaType === "voice" && (
+                {msg.mediaType === "voice" && !msg.viewOnce && (
                   <div
                     className={`mb-2 flex items-center gap-2.5 p-2 rounded-xl ${
                       isMe
@@ -739,23 +880,35 @@ export function ChatArea({
                 {/* View-Once Message Handling */}
                 {msg.viewOnce ? (
                   msg.isBurned ? (
-                    <div className="flex items-center gap-2 py-1 italic opacity-60 text-xs text-[#65676b]">
-                      <Flame className="h-4 w-4" />
-                      <span>View-once message opened and destroyed</span>
+                    <div
+                      className={`flex items-center gap-2 py-1.5 italic text-xs ${
+                        isMe ? "text-white/90" : "text-[#65676b]"
+                      }`}
+                    >
+                      <Flame className={`h-4 w-4 shrink-0 ${isMe ? "text-amber-200" : "text-amber-500"}`} />
+                      <span className="font-medium">View-once message opened and destroyed</span>
                     </div>
                   ) : (
                     <button
-                      onClick={() => onBurnMessage?.(msg.id)}
-                      className={`flex items-center gap-2.5 py-1.5 px-3 rounded-xl transition-all cursor-pointer font-medium text-xs ${
+                      type="button"
+                      onClick={() => setActiveViewOnceMsg(msg)}
+                      className={`flex items-center gap-2.5 py-2 px-3.5 rounded-2xl transition-all cursor-pointer font-medium text-xs shadow-xs ${
                         isMe
-                          ? "bg-black/20 hover:bg-black/30 text-white"
+                          ? "bg-white/20 hover:bg-white/30 text-white border border-white/20"
                           : "bg-white hover:bg-neutral-100 text-[#050505] border border-[#e4e6eb]"
                       }`}
                     >
-                      <div className="w-6 h-6 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-[10px]">
+                      <div className="w-6 h-6 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-[10px] shrink-0 shadow-xs ring-2 ring-amber-300/50">
                         1
                       </div>
-                      <span>Click to view (Burns immediately)</span>
+                      <div className="text-left">
+                        <span className="block font-semibold">
+                          {msg.mediaType === "image" ? "View-once Photo" : "View-once Message"}
+                        </span>
+                        <span className={`block text-[10px] ${isMe ? "text-white/80" : "text-[#65676b]"}`}>
+                          Click to open &bull; Burns after viewing
+                        </span>
+                      </div>
                     </button>
                   )
                 ) : (
@@ -835,6 +988,11 @@ export function ChatArea({
                       minute: "2-digit",
                     })}
                   </span>
+                  {msg.isEdited && (
+                    <span className="text-[10px] opacity-75 italic ml-0.5">
+                      (edited)
+                    </span>
+                  )}
 
                   {/* Status ticks for outgoing */}
                   {isMe && (
@@ -850,9 +1008,11 @@ export function ChatArea({
                           <span>Failed</span>
                         </span>
                       ) : msg.status === "sent" || !settings?.readReceipts ? (
-                        <Check className={`h-3.5 w-3.5 ${theme.subtle}`} />
+                        <span title="Sent"><Check className={`h-3.5 w-3.5 ${theme.subtle}`} /></span>
+                      ) : msg.status === "read" ? (
+                        <span title="Seen"><CheckCheck className="h-3.5 w-3.5 text-cyan-300 stroke-[2.5]" /></span>
                       ) : (
-                        <CheckCheck className="h-3.5 w-3.5 text-white" />
+                        <span title="Delivered"><CheckCheck className="h-3.5 w-3.5 text-white/80" /></span>
                       )}
                     </span>
                   )}
@@ -944,6 +1104,32 @@ export function ChatArea({
       {/* Facebook Messenger Clean Input Bar */}
       <footer className="p-3 bg-white border-t border-[#f0f2f5] z-20 shrink-0">
         <div className="max-w-4xl mx-auto">
+          {/* Editing Message Banner */}
+          {editingMessage && (
+            <div className="mb-2 px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between text-xs text-[#0084ff] animate-in fade-in slide-in-from-bottom-2 duration-150">
+              <div className="flex items-center gap-2 min-w-0">
+                <Pencil className="h-4 w-4 text-[#0084ff] shrink-0" />
+                <div className="min-w-0">
+                  <span className="font-semibold text-[#050505]">Editing message:</span>
+                  <p className="truncate text-neutral-600 text-[11px] max-w-[240px] sm:max-w-md">
+                    {editingMessage.text}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingMessage(null);
+                  setInputText("");
+                }}
+                className="p-1 rounded-full hover:bg-blue-100 text-neutral-500 hover:text-neutral-800 cursor-pointer shrink-0"
+                title="Cancel editing"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
           {/* Detected URL Preview Pill */}
           {(() => {
             const detectedUrls = extractUrls(inputText);
@@ -1089,10 +1275,18 @@ export function ChatArea({
               <button
                 type="button"
                 onClick={() => handleSend()}
-                className="w-9 h-9 rounded-full bg-[#0084ff] hover:bg-[#0073e6] text-white flex items-center justify-center font-bold shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
-                title="Send message"
+                className={`w-9 h-9 rounded-full ${
+                  editingMessage
+                    ? "bg-emerald-600 hover:bg-emerald-700"
+                    : "bg-[#0084ff] hover:bg-[#0073e6]"
+                } text-white flex items-center justify-center font-bold shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0`}
+                title={editingMessage ? "Save edit" : "Send message"}
               >
-                <Send className="h-4 w-4 fill-current ml-0.5" />
+                {editingMessage ? (
+                  <Check className="h-4 w-4 text-white stroke-[2.5]" />
+                ) : (
+                  <Send className="h-4 w-4 fill-current ml-0.5" />
+                )}
               </button>
             ) : (
               <button
@@ -1163,6 +1357,224 @@ export function ChatArea({
               onClick={(e) => e.stopPropagation()}
               className="max-h-[85vh] max-w-[92vw] object-contain rounded-xl shadow-2xl border border-white/10"
             />
+          </div>
+        </div>
+      )}
+
+      {/* Full-Screen Secure View-Once Viewer Modal */}
+      {activeViewOnceMsg && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/95 backdrop-blur-md flex flex-col animate-in fade-in duration-150 select-none"
+          onClick={() => {
+            const id = activeViewOnceMsg.id;
+            setActiveViewOnceMsg(null);
+            onBurnMessage?.(id);
+          }}
+        >
+          {/* Top Bar with Security Badge & Close Button */}
+          <div
+            className="h-16 px-4 md:px-6 flex items-center justify-between text-white bg-black/70 border-b border-white/10 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 ring-1 ring-amber-400/40">
+                <Flame className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold truncate text-white flex items-center gap-2">
+                  <span>Confidential View-Once</span>
+                  <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-mono uppercase tracking-wider">
+                    Self-Destruct
+                  </span>
+                </p>
+                <p className="text-[11px] text-neutral-400">
+                  This message will permanently destroy when closed
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                const id = activeViewOnceMsg.id;
+                setActiveViewOnceMsg(null);
+                onBurnMessage?.(id);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer border border-white/15"
+              title="Close and destroy message"
+            >
+              <X className="h-4 w-4" />
+              <span>Close & Destroy</span>
+            </button>
+          </div>
+
+          {/* Modal Content Stage */}
+          <div
+            className="flex-1 flex items-center justify-center p-4 md:p-8 overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {activeViewOnceMsg.mediaType === "image" ? (
+              <div className="flex flex-col items-center max-w-4xl max-h-[80vh]">
+                <img
+                  src={decryptedImages[activeViewOnceMsg.id] || activeViewOnceMsg.mediaUrl}
+                  alt={activeViewOnceMsg.text || "View-once image"}
+                  className="max-h-[75vh] max-w-[90vw] object-contain rounded-2xl shadow-2xl border border-white/10"
+                />
+                {activeViewOnceMsg.text && (
+                  <p className="mt-4 text-sm text-neutral-200 bg-neutral-900/90 border border-neutral-700 px-4 py-2 rounded-xl max-w-lg text-center">
+                    {activeViewOnceMsg.text}
+                  </p>
+                )}
+                <button
+                  onClick={() => {
+                    const id = activeViewOnceMsg.id;
+                    setActiveViewOnceMsg(null);
+                    onBurnMessage?.(id);
+                  }}
+                  className="mt-6 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-black font-semibold text-xs tracking-wide shadow-lg transition-all cursor-pointer active:scale-95"
+                >
+                  Done (Destroy Photo)
+                </button>
+              </div>
+            ) : (
+              <div className="bg-neutral-900/95 border border-neutral-800 rounded-3xl p-6 md:p-8 max-w-lg w-full text-white shadow-2xl space-y-4">
+                <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold uppercase tracking-wider">
+                  <Lock className="h-4 w-4" />
+                  <span>Confidential Content</span>
+                </div>
+                <div className="text-base md:text-lg leading-relaxed break-words font-medium text-neutral-100 min-h-[60px]">
+                  {formatMessageWithLinks(activeViewOnceMsg.text, false)}
+                </div>
+                {(() => {
+                  const urls = extractUrls(activeViewOnceMsg.text);
+                  if (urls.length === 0) return null;
+                  return (
+                    <div className="space-y-2 pt-2 border-t border-neutral-800">
+                      {urls.map((u, i) => (
+                        <LinkPreviewCard
+                          key={i}
+                          url={u}
+                          initialMetadata={activeViewOnceMsg.linkMetadata?.find((m) => m.url === u)}
+                          isMe={false}
+                        />
+                      ))}
+                    </div>
+                  );
+                })()}
+                <div className="pt-3">
+                  <button
+                    onClick={() => {
+                      const id = activeViewOnceMsg.id;
+                      setActiveViewOnceMsg(null);
+                      onBurnMessage?.(id);
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-black font-semibold text-xs tracking-wide shadow-lg transition-all cursor-pointer active:scale-95"
+                  >
+                    Done (Destroy Message)
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Context Menu Dropdown on Right Click or Long Press */}
+      {contextMenu && (
+        <div
+          style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+          className="fixed z-[90] bg-white border border-[#e4e6eb] rounded-2xl p-1.5 shadow-2xl text-[#050505] min-w-[210px] animate-in fade-in zoom-in-95 duration-100 select-none text-xs"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Reaction Bar in Dropdown */}
+          <div className="flex items-center justify-around py-1 px-1 border-b border-neutral-100 mb-1">
+            {quickReactions.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => {
+                  onAddReaction(contextMenu.message.id, emoji);
+                  setContextMenu(null);
+                }}
+                className="hover:scale-125 transition-transform text-sm p-1 cursor-pointer"
+                title={`React ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+
+          {/* Action List */}
+          <div className="space-y-0.5">
+            {/* Edit (if sender's message and not viewOnce) */}
+            {contextMenu.message.senderId === currentUser.id && !contextMenu.message.viewOnce && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingMessage(contextMenu.message);
+                  setInputText(contextMenu.message.text);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#f0f2f5] text-neutral-800 font-medium cursor-pointer transition-colors text-left"
+              >
+                <Pencil className="h-4 w-4 text-[#0084ff]" />
+                <span>Edit message</span>
+              </button>
+            )}
+
+            {/* Copy Text */}
+            {!settings.preventCopyForward && contextMenu.message.text && (
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(contextMenu.message.text);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#f0f2f5] text-neutral-800 font-medium cursor-pointer transition-colors text-left"
+              >
+                <Copy className="h-4 w-4 text-neutral-500" />
+                <span>Copy text</span>
+              </button>
+            )}
+
+            {/* Pin / Unpin */}
+            {onTogglePinMessage && (
+              <button
+                type="button"
+                onClick={() => {
+                  onTogglePinMessage(contextMenu.message.id);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#f0f2f5] text-neutral-800 font-medium cursor-pointer transition-colors text-left"
+              >
+                <Pin
+                  className={`h-4 w-4 ${
+                    contextMenu.message.isPinned ? "fill-current text-amber-500" : "text-neutral-500"
+                  }`}
+                />
+                <span>{contextMenu.message.isPinned ? "Unpin message" : "Pin message"}</span>
+              </button>
+            )}
+
+            {/* Delete (if sender's message) */}
+            {contextMenu.message.senderId === currentUser.id && (
+              <>
+                <div className="h-[1px] bg-neutral-100 my-1" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const msgId = contextMenu.message.id;
+                    setContextMenu(null);
+                    if (confirm("Delete this message for everyone?")) {
+                      onDeleteMessage?.(msgId);
+                    }
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-rose-50 text-rose-600 font-medium cursor-pointer transition-colors text-left"
+                >
+                  <Trash2 className="h-4 w-4 text-rose-500" />
+                  <span>Delete for everyone</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

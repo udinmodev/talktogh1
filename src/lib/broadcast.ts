@@ -17,6 +17,8 @@ export type BroadcastAction =
   | { type: "KEY_ROTATION"; newVersion: number; senderId: string }
   | { type: "VIEW_ONCE_OPENED"; messageId: string }
   | { type: "TOGGLE_PIN"; messageId: string; isPinned: boolean }
+  | { type: "DELETE_MESSAGE"; messageId: string }
+  | { type: "EDIT_MESSAGE"; messageId: string; payload: EncryptedPayload; newText: string }
   | { type: "REACTION"; messageId: string; emoji: string; userId: string }
   | { type: "WIPE_ALL"; senderId: string }
   | { type: "USER_PRESENCE"; userId: string; status: "online" | "offline" }
@@ -51,12 +53,18 @@ class ChatSyncChannel {
   }
 
   private handleIncoming(action: BroadcastAction) {
+    // Typing indicators toggle frequently and must never be blocked by static deduplication
+    if (action.type === "TYPING_INDICATOR") {
+      this.listeners.forEach((listener) => listener(action));
+      return;
+    }
+
     // Generate a unique fingerprint for deduplication across dual transport
     const actionKey =
       "messageId" in action
-        ? `${action.type}:${action.messageId}:${("status" in action ? action.status : "")}`
-        : "senderId" in action
-        ? `${action.type}:${action.senderId}:${("isTyping" in action ? action.isTyping : "")}`
+        ? `${action.type}:${action.messageId}:${"status" in action ? action.status : ""}:${
+            "newText" in action ? action.newText : ""
+          }`
         : `${action.type}:${JSON.stringify(action)}`;
 
     if (this.processedActions.has(actionKey)) return;

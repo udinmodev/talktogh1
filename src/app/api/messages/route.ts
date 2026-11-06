@@ -5,7 +5,10 @@ import {
   saveSingleWireMessage,
   burnWireMessage,
   togglePinWireMessage,
+  deleteWireMessage,
+  editWireMessage,
   updateStatusWireMessage,
+  markAllReadWireMessages,
   addReactionWireMessage,
   wipeAllWireMessages,
   getServerStoreStats,
@@ -16,7 +19,10 @@ import {
   saveSupabaseWireMessages,
   burnSupabaseWireMessage,
   togglePinSupabaseWireMessage,
+  deleteSupabaseWireMessage,
+  editSupabaseWireMessage,
   updateStatusSupabaseWireMessage,
+  markAllReadSupabaseWireMessages,
   addReactionSupabaseWireMessage,
   wipeSupabaseWireMessages,
 } from "@/lib/supabase-store";
@@ -182,6 +188,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: burned, burned });
     }
 
+    if (action === "delete" && messageId) {
+      if (isSupabaseConfigured) {
+        await deleteSupabaseWireMessage(messageId);
+      }
+      const deleted = deleteWireMessage(messageId);
+      return NextResponse.json({ success: true, deleted, messageId });
+    }
+
+    if (action === "edit" && messageId && body.encryptedPayload) {
+      if (isSupabaseConfigured) {
+        await editSupabaseWireMessage(messageId, body.encryptedPayload);
+      }
+      const edited = editWireMessage(messageId, body.encryptedPayload);
+      return NextResponse.json({ success: true, edited, messageId });
+    }
+
     if (action === "pin" && messageId) {
       const isPinned = Boolean(body.isPinned);
       if (isSupabaseConfigured) {
@@ -197,6 +219,16 @@ export async function POST(request: Request) {
       }
       const updated = updateStatusWireMessage(messageId, status);
       return NextResponse.json({ success: updated, updated });
+    }
+
+    if ((action === "read" || action === "mark_read") && body.recipientId && body.senderId) {
+      const recipientId = String(body.recipientId);
+      const senderId = String(body.senderId);
+      if (isSupabaseConfigured) {
+        await markAllReadSupabaseWireMessages(recipientId, senderId);
+      }
+      const updated = markAllReadWireMessages(recipientId, senderId);
+      return NextResponse.json({ success: true, updated, recipientId, senderId });
     }
 
     if (action === "reaction" && messageId && reaction) {
