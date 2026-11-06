@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, usePathname } from "next/navigation";
 import { User, Message, SecuritySettings, LinkMetadata, DEFAULT_SETTINGS } from "@/types/chat";
 import { extractUrls, getClientLinkMetadata } from "@/components/chat/LinkPreviewCard";
 import { soundManager } from "@/lib/sound";
@@ -28,7 +28,7 @@ import {
   AuthUser,
 } from "@/lib/auth";
 import { getSupabaseClient } from "@/lib/supabase";
-import { fromSupabaseRow, SupabaseWireRow } from "@/lib/supabase-store";
+import { fromSupabaseRow, SupabaseWireRow } from "@/types/wire";
 import { WifiOff, X } from "lucide-react";
 import { ChatContext, ChatContextType } from "./ChatContext";
 import { getInternalApiHeaders } from "@/lib/api-security";
@@ -36,9 +36,14 @@ import { getInternalApiHeaders } from "@/lib/api-security";
 export default function RootChatShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const params = useParams();
+  const pathname = usePathname();
 
-  // Extract /id parameter for direct chat routing (e.g. /marcus, /alice)
-  const rawId = params?.id ? (Array.isArray(params.id) ? params.id[0] : params.id) : "";
+  // Extract /id parameter from route params or current pathname reliably
+  const pathId =
+    pathname && pathname !== "/" && !pathname.startsWith("/api")
+      ? pathname.replace(/^\//, "").split("/")[0]
+      : "";
+  const rawId = params?.id ? (Array.isArray(params.id) ? params.id[0] : params.id) : pathId;
   const routeContactId =
     rawId && rawId !== "favicon.ico" && !rawId.startsWith("api")
       ? decodeURIComponent(rawId).split("@")[0].toLowerCase()
@@ -63,9 +68,6 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     if (routeContactId) {
       setSelectedContactId(routeContactId);
       setMobileView("chat");
-    } else {
-      setSelectedContactId("");
-      setMobileView("sidebar");
     }
   }, [routeContactId]);
 
@@ -124,11 +126,18 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       const saved = localStorage.getItem(`wechat_settings_${cleanCurrentId}`);
       if (saved) {
         const parsed = JSON.parse(saved);
+        // Guarantee zero plaintext pin in client cache
+        delete parsed.appLockPin;
+        delete parsed.pin;
+        delete parsed.correctPin;
+        delete parsed.lockPin;
+
         // Force default to 0 (Off) if it was previously set to the old 30s default
         if (parsed.disappearingTimer === 30 && !localStorage.getItem(`wechat_dtimer_explicit_${cleanCurrentId}`)) {
           parsed.disappearingTimer = 0;
         }
         setSettings((prev) => ({ ...prev, ...parsed }));
+        localStorage.setItem(`wechat_settings_${cleanCurrentId}`, JSON.stringify(parsed));
       }
     } catch {}
 
@@ -139,6 +148,11 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       .then((data) => {
         if (data.success && data.settings) {
           const s = data.settings;
+          delete s.appLockPin;
+          delete s.pin;
+          delete s.correctPin;
+          delete s.lockPin;
+
           // Force default to 0 (Off) if it was previously initialized to the old 30s default
           if (s.disappearingTimer === 30 && !localStorage.getItem(`wechat_dtimer_explicit_${cleanCurrentId}`)) {
             s.disappearingTimer = 0;
@@ -156,6 +170,10 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     (newOpts: Partial<SecuritySettings>) => {
       setSettings((prev) => {
         const updated = { ...prev, ...newOpts };
+        delete (updated as any).appLockPin;
+        delete (updated as any).pin;
+        delete (updated as any).correctPin;
+        delete (updated as any).lockPin;
 
         if (newOpts.disappearingTimer !== undefined) {
           try {
@@ -249,21 +267,30 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     isOnline: isOnline,
   };
 
+  const partnerContact = contacts.find((c) => c.id !== cleanCurrentId);
+  const rawActiveChatId = (selectedContactId || routeContactId || "").split("@")[0].toLowerCase();
+  const activeChatId = (
+    rawActiveChatId && rawActiveChatId !== "none" && rawActiveChatId !== cleanCurrentId
+      ? rawActiveChatId
+      : partnerContact?.id || ""
+  ).split("@")[0].toLowerCase();
+
   const contactUser: User =
-    (selectedContactId ? contacts.find((c) => c.id === selectedContactId) : null) || {
-      id: selectedContactId || "none",
+    (activeChatId && activeChatId !== "none" ? contacts.find((c) => c.id === activeChatId) : null) ||
+    partnerContact || {
+      id: activeChatId || "none",
       name:
-        selectedContactId && selectedContactId !== "none"
-          ? selectedContactId
+        activeChatId && activeChatId !== "none"
+          ? activeChatId
           : "Select a Contact",
       role: "contact",
       avatar:
-        selectedContactId && selectedContactId !== "none"
-          ? `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(selectedContactId)}`
+        activeChatId && activeChatId !== "none"
+          ? `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(activeChatId)}`
           : "https://api.dicebear.com/7.x/initials/svg?seed=None",
-      phone: selectedContactId && selectedContactId !== "none" ? `@${selectedContactId}` : "",
+      phone: activeChatId && activeChatId !== "none" ? `@${activeChatId}` : "",
       about:
-        selectedContactId && selectedContactId !== "none"
+        activeChatId && activeChatId !== "none"
           ? "Registered confidential identity."
           : "No user selected.",
       publicKeyFingerprint: "7EFE2C6DCC10DA73",
@@ -302,8 +329,14 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
             });
 
           setContacts(registeredUsers);
-          if (routeContactId) {
+          if (routeContactId && routeContactId !== myCleanId) {
             setSelectedContactId(routeContactId);
+          } else if (registeredUsers.length === 1) {
+            const partner = registeredUsers[0].id;
+            setSelectedContactId(partner);
+            if (pathname !== `/${partner}`) {
+              router.replace(`/${partner}`);
+            }
           }
         }
       }
@@ -327,10 +360,10 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
 
     async function updateChatCrypto() {
       try {
-        if (!contactUser || contactUser.id === "none") return;
-        const partnerId = contactUser.id;
-        const derivedKey = await getPairSessionKey(currentUser.id, partnerId);
-        const code = await getPairSafetyNumber(currentUser.id, partnerId);
+        const partnerId = activeChatId;
+        if (!partnerId || partnerId === "none" || partnerId === cleanCurrentId || !cleanCurrentId || cleanCurrentId === "user") return;
+        const derivedKey = await getPairSessionKey(cleanCurrentId, partnerId);
+        const code = await getPairSafetyNumber(cleanCurrentId, partnerId);
 
         if (!isCancelled) {
           setSessionKey(derivedKey);
@@ -346,7 +379,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     return () => {
       isCancelled = true;
     };
-  }, [currentUser.id, contactUser.id]);
+  }, [cleanCurrentId, activeChatId]);
 
   // Process incoming wire messages from WebSocket synchronization
   const processIncomingWireBatch = useCallback(async (wireList: any[]) => {
@@ -359,16 +392,33 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       for (const wire of wireList) {
         try {
           const isChannel = wire.recipientId?.startsWith("public-");
-          const partnerId = isChannel
-            ? wire.recipientId
-            : wire.senderId === currentUser.id
-            ? wire.recipientId
-            : wire.senderId;
+          const cleanSender = String(wire.senderId || "").split("@")[0].toLowerCase();
+          const cleanRecipient = String(wire.recipientId || "").split("@")[0].toLowerCase();
+          const cleanCurrent = String(currentUser.id || "").split("@")[0].toLowerCase();
 
-          const chatKey = await getPairSessionKey(currentUser.id, partnerId);
-          const decrypted = await decryptMessageContent(wire.encryptedPayload, chatKey);
+          const partnerId = isChannel
+            ? cleanRecipient
+            : cleanSender === cleanCurrent
+            ? cleanRecipient
+            : cleanSender;
+
+          if (!partnerId || partnerId === "none" || partnerId === cleanCurrent) continue;
+
+          let ep = wire.encryptedPayload;
+          if (typeof ep === "string") {
+            try {
+              ep = JSON.parse(ep);
+            } catch {}
+          }
+          if (!ep || !ep.iv || !ep.ciphertext) continue;
+
+          const chatKey = await getPairSessionKey(cleanCurrent, partnerId);
+          const decrypted = await decryptMessageContent(ep, chatKey);
           decryptedList.push({
             ...wire,
+            senderId: cleanSender,
+            recipientId: cleanRecipient,
+            encryptedPayload: ep,
             text: decrypted.text,
             linkMetadata: decrypted.linkMetadata,
             mediaType: decrypted.mediaType || wire.mediaType,
@@ -455,31 +505,45 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
           if (!newRow || !newRow.id) return;
           const wire = fromSupabaseRow(newRow);
 
+          const cleanSender = String(wire.senderId || "").split("@")[0].toLowerCase();
+          const cleanRecipient = String(wire.recipientId || "").split("@")[0].toLowerCase();
+          const cleanCurrent = String(currentUser.id || "").split("@")[0].toLowerCase();
+
           const isRelevant =
-            wire.recipientId === currentUser.id ||
-            wire.senderId === currentUser.id ||
-            wire.recipientId?.startsWith("public-");
+            cleanRecipient === cleanCurrent ||
+            cleanSender === cleanCurrent ||
+            cleanRecipient.startsWith("public-");
 
           if (!isRelevant) return;
 
           try {
-            const isChannel = wire.recipientId?.startsWith("public-");
+            const isChannel = cleanRecipient.startsWith("public-");
             const partnerId = isChannel
-              ? wire.recipientId
-              : wire.senderId === currentUser.id
-              ? wire.recipientId
-              : wire.senderId;
+              ? cleanRecipient
+              : cleanSender === cleanCurrent
+              ? cleanRecipient
+              : cleanSender;
 
-            const chatKey = await getPairSessionKey(currentUser.id, partnerId);
-            const decrypted = await decryptMessageContent(wire.encryptedPayload, chatKey);
+            if (!partnerId || partnerId === "none" || partnerId === cleanCurrent) return;
+
+            let ep = wire.encryptedPayload;
+            if (typeof ep === "string") {
+              try {
+                ep = JSON.parse(ep);
+              } catch {}
+            }
+            if (!ep || !ep.iv || !ep.ciphertext) return;
+
+            const chatKey = await getPairSessionKey(cleanCurrent, partnerId);
+            const decrypted = await decryptMessageContent(ep, chatKey);
             const duration = wire.disappearingDuration && wire.disappearingDuration > 0 ? wire.disappearingDuration : null;
 
             const newMsg: Message = {
               id: wire.id,
-              senderId: wire.senderId,
-              recipientId: wire.recipientId,
+              senderId: cleanSender,
+              recipientId: cleanRecipient,
               text: decrypted.text,
-              encryptedPayload: wire.encryptedPayload,
+              encryptedPayload: ep,
               timestamp: wire.timestamp,
               status: (wire.status as Message["status"]) || "delivered",
               disappearingDuration: duration,
@@ -622,14 +686,28 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       if (action.type === "NEW_MESSAGE") {
         try {
           const isChannel = action.payload.recipientId?.startsWith("public-");
-          const partnerId = isChannel
-            ? action.payload.recipientId
-            : action.payload.senderId === currentUser.id
-            ? action.payload.recipientId
-            : action.payload.senderId;
+          const cleanSender = String(action.payload.senderId || "").split("@")[0].toLowerCase();
+          const cleanRecipient = String(action.payload.recipientId || "").split("@")[0].toLowerCase();
+          const cleanCurrent = String(currentUser.id || "").split("@")[0].toLowerCase();
 
-          const key = await getPairSessionKey(currentUser.id, partnerId);
-          const decrypted = await decryptMessageContent(action.payload, key);
+          const partnerId = isChannel
+            ? cleanRecipient
+            : cleanSender === cleanCurrent
+            ? cleanRecipient
+            : cleanSender;
+
+          if (!partnerId || partnerId === "none" || partnerId === cleanCurrent) return;
+
+          let ep = action.payload;
+          if (typeof ep === "string") {
+            try {
+              ep = JSON.parse(ep);
+            } catch {}
+          }
+          if (!ep || !ep.iv || !ep.ciphertext) return;
+
+          const key = await getPairSessionKey(cleanCurrent, partnerId);
+          const decrypted = await decryptMessageContent(ep, key);
           const duration =
             action.disappearingDuration && action.disappearingDuration > 0
               ? action.disappearingDuration
@@ -637,10 +715,10 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
 
           const newMsg: Message = {
             id: action.messageId,
-            senderId: action.payload.senderId,
-            recipientId: action.payload.recipientId,
+            senderId: cleanSender,
+            recipientId: cleanRecipient,
             text: decrypted.text,
-            encryptedPayload: action.payload,
+            encryptedPayload: ep,
             timestamp: action.payload.timestamp,
             status: "read",
             disappearingDuration: duration,
@@ -725,22 +803,49 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       viewOnce?: boolean,
       customDuration?: number | null
     ) => {
-      if (!sessionKey) return;
+      const myId = cleanCurrentId;
+      const targetId = (
+        contactUser?.id && contactUser.id !== "none"
+          ? contactUser.id
+          : activeChatId
+      ).split("@")[0].toLowerCase();
+
+      if (!targetId || targetId === "none") {
+        console.warn("No recipient selected to send message to.");
+        return;
+      }
+
+      let activeKey = sessionKey;
+      if (!activeKey) {
+        try {
+          activeKey = await getPairSessionKey(myId, targetId);
+          if (activeKey) {
+            setSessionKey(activeKey);
+          }
+        } catch (err) {
+          console.error("Crypto session key derivation error:", err);
+        }
+      }
+
+      if (!activeKey) {
+        console.error("Cannot send message: Crypto session key could not be established.");
+        return;
+      }
 
       if (!isOnline || (typeof navigator !== "undefined" && !navigator.onLine)) {
         setNetworkError("Internet connection cut down! Failed to send message. You are offline.");
         const failedMsgId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
         const failedMsg: Message = {
           id: failedMsgId,
-          senderId: currentUser.id,
-          recipientId: contactUser.id,
+          senderId: myId,
+          recipientId: targetId,
           text,
           encryptedPayload: {
             iv: "",
             ciphertext: "",
             algorithm: "AES-256-GCM (HKDF-SHA256)",
-            senderId: currentUser.id,
-            recipientId: contactUser.id,
+            senderId: myId,
+            recipientId: targetId,
             timestamp: Date.now(),
           },
           timestamp: Date.now(),
@@ -773,15 +878,15 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
 
         const payload = await encryptMessageContent(
           { text, linkMetadata, mediaType, mediaUrl },
-          sessionKey,
-          currentUser.id,
-          contactUser.id
+          activeKey,
+          myId,
+          targetId
         );
 
         const newMsg: Message = {
           id: newMsgId,
-          senderId: currentUser.id,
-          recipientId: contactUser.id,
+          senderId: myId,
+          recipientId: targetId,
           text,
           encryptedPayload: payload,
           timestamp: Date.now(),
@@ -821,8 +926,8 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
         // Persist zero-knowledge wire envelope to database
         const wireData = {
           id: newMsgId,
-          senderId: currentUser.id,
-          recipientId: contactUser.id,
+          senderId: myId,
+          recipientId: targetId,
           encryptedPayload: payload,
           timestamp: newMsg.timestamp,
           status: "delivered",
@@ -845,7 +950,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
         console.error("Encryption failed:", err);
       }
     },
-    [sessionKey, currentUser.id, contactUser.id, settings.disappearingTimer, settings.soundEffects, isOnline]
+    [sessionKey, cleanCurrentId, contactUser?.id, activeChatId, settings.disappearingTimer, settings.soundEffects, isOnline]
   );
 
   const handleTogglePinMessage = (messageId: string) => {
@@ -932,11 +1037,17 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     }).catch((err) => console.warn("Cloud message reaction notice:", err));
   };
 
-  const activeMessages = messages.filter(
-    (m) =>
-      (m.senderId === contactUser.id && m.recipientId === currentUser.id) ||
-      (m.senderId === currentUser.id && m.recipientId === contactUser.id)
-  );
+  const activeMessages = messages.filter((m) => {
+    const s = String(m.senderId || "").split("@")[0].toLowerCase();
+    const r = String(m.recipientId || "").split("@")[0].toLowerCase();
+    const target = activeChatId;
+    if (!target || target === "none") return false;
+    return (
+      (s === target && r === cleanCurrentId) ||
+      (s === cleanCurrentId && r === target) ||
+      (target.startsWith("public-") && r === target)
+    );
+  });
 
   const contextValue: ChatContextType = {
     currentUser,

@@ -1,42 +1,7 @@
 import fs from "fs";
 import path from "path";
-
-/**
- * SERVER-SIDE PERSISTENT ZERO-KNOWLEDGE MESSAGE STORE
- * 
- * Strict E2EE Guarantee:
- * - Persists ONLY AES-256-GCM ciphertext, IV, AAD digest, and delivery metadata.
- * - ZERO plaintext text or metadata is ever saved to disk or server memory.
- * - Auto-purges expired self-destructing messages from disk.
- */
-
-export interface WireMessage {
-  id: string;
-  senderId: string;
-  recipientId: string;
-  encryptedPayload: {
-    ciphertext: string;
-    iv: string;
-    algorithm: string;
-    senderId: string;
-    recipientId: string;
-    timestamp: number;
-    keyEpoch?: number;
-    aadDigest?: string;
-    integrityStatus?: "verified" | "tampered";
-  };
-  timestamp: number;
-  status: "sending" | "sent" | "delivered" | "read";
-  disappearingDuration?: number | null;
-  expiresAt?: number | null;
-  viewOnce?: boolean;
-  isBurned?: boolean;
-  isPinned?: boolean;
-  securityType?: "standard" | "disappearing" | "view_once" | "confidential";
-  mediaType?: "image" | "voice" | "doc";
-  mediaUrl?: string;
-  reactions?: Record<string, string>;
-}
+import { WireMessage } from "@/types/wire";
+export type { WireMessage };
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const STORE_FILE = path.join(DATA_DIR, "wire-messages.json");

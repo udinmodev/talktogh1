@@ -35,6 +35,7 @@ import {
 import LinkPreviewCard, { extractUrls, formatMessageWithLinks } from "./LinkPreviewCard";
 import { getThemeClasses, getWallpaperClass, getFontSizeClass, getBubbleRadius } from "@/lib/theme";
 import { getInternalApiHeaders } from "@/lib/api-security";
+import { bufferToBase64, uint8ArrayToBase64, base64ToBuffer } from "@/lib/crypto";
 
 interface ChatAreaProps {
   currentUser: User;
@@ -191,8 +192,8 @@ export function ChatArea({
             }
 
             if (parsed && parsed.iv && parsed.ciphertext) {
-              const ivBuf = Uint8Array.from(atob(parsed.iv), (c) => c.charCodeAt(0));
-              const cipherBuf = Uint8Array.from(atob(parsed.ciphertext), (c) => c.charCodeAt(0));
+              const ivBuf = new Uint8Array(base64ToBuffer(parsed.iv));
+              const cipherBuf = base64ToBuffer(parsed.ciphertext);
               const decryptedBuf = await window.crypto.subtle.decrypt(
                 { name: "AES-GCM", iv: ivBuf },
                 sessionKey,
@@ -236,10 +237,27 @@ export function ChatArea({
     onTyping(false);
   };
 
+  // Strict 3MB media limit (enforced both client-side and server-side)
+  const MAX_IMAGE_SIZE_BYTES = 3 * 1024 * 1024; // 3MB
+
   // Instant Optimistic Image Display + Asynchronous Background Encryption & ImageKit Upload
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) {
+    if (!file) {
+      e.target.value = "";
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setInlineError("Please select a valid image file (JPEG, PNG, WebP, GIF).");
+      e.target.value = "";
+      return;
+    }
+
+    // Strict 3MB size limit
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      setInlineError(`Image size exceeds 3MB limit (${sizeMb}MB). Please choose a file up to 3MB.`);
       e.target.value = "";
       return;
     }
@@ -279,10 +297,11 @@ export function ChatArea({
                 enc.encode(localDataUrl)
               );
 
-              const ivBase64 = btoa(String.fromCharCode(...Array.from(iv)));
-              const cipherBase64 = btoa(String.fromCharCode(...Array.from(new Uint8Array(encryptedBuf))));
+              // Safe chunked Base64 encoding - avoids call stack size errors
+              const ivBase64 = uint8ArrayToBase64(iv);
+              const cipherBase64 = bufferToBase64(encryptedBuf);
               const encryptedBlobPayload = JSON.stringify({ iv: ivBase64, ciphertext: cipherBase64 });
-              const payloadBase64 = btoa(encryptedBlobPayload);
+              const payloadBase64 = uint8ArrayToBase64(new TextEncoder().encode(encryptedBlobPayload));
 
               // Background upload to ImageKit
               await fetch("/api/upload", {
@@ -914,7 +933,10 @@ export function ChatArea({
             <div className="w-7 h-7 rounded-lg bg-blue-50 text-[#0084ff] flex items-center justify-center shrink-0">
               <ImageIcon className="h-4 w-4" />
             </div>
-            <span>Photo</span>
+            <div>
+              <span className="block font-medium">Photo</span>
+              <span className="block text-[10px] text-[#65676b]">Max 3MB</span>
+            </div>
           </button>
         </div>
       )}

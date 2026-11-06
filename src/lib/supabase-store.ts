@@ -1,70 +1,58 @@
-import { getSupabaseClient, isSupabaseConfigured } from "./supabase";
+import { getSupabaseClient, getSupabaseAdminClient, isSupabaseConfigured } from "./supabase";
 import { WireMessage } from "./server-store";
-
-export interface SupabaseWireRow {
-  id: string;
-  sender_id: string;
-  recipient_id: string;
-  encrypted_payload: WireMessage["encryptedPayload"];
-  timestamp: number;
-  status: string;
-  disappearing_duration: number | null;
-  expires_at: number | null;
-  view_once: boolean;
-  is_burned: boolean;
-  is_pinned: boolean;
-  security_type: string;
-  media_type: string | null;
-  media_url: string | null;
-  reactions: Record<string, string> | null;
-  created_at?: string;
-}
-
-export function toSupabaseRow(m: WireMessage): SupabaseWireRow {
-  return {
-    id: m.id,
-    sender_id: m.senderId,
-    recipient_id: m.recipientId,
-    encrypted_payload: m.encryptedPayload,
-    timestamp: m.timestamp,
-    status: m.status || "delivered",
-    disappearing_duration: m.disappearingDuration ?? null,
-    expires_at: m.expiresAt ?? null,
-    view_once: Boolean(m.viewOnce),
-    is_burned: Boolean(m.isBurned),
-    is_pinned: Boolean(m.isPinned),
-    security_type: m.securityType || "standard",
-    media_type: m.mediaType ?? null,
-    media_url: m.mediaUrl ?? null,
-    reactions: m.reactions ?? {},
-  };
-}
-
-export function fromSupabaseRow(row: SupabaseWireRow): WireMessage {
-  return {
-    id: row.id,
-    senderId: row.sender_id,
-    recipientId: row.recipient_id,
-    encryptedPayload: row.encrypted_payload,
-    timestamp: Number(row.timestamp),
-    status: row.status as WireMessage["status"],
-    disappearingDuration: row.disappearing_duration,
-    expiresAt: row.expires_at ? Number(row.expires_at) : null,
-    viewOnce: Boolean(row.view_once),
-    isBurned: Boolean(row.is_burned),
-    isPinned: Boolean(row.is_pinned),
-    securityType: row.security_type as WireMessage["securityType"],
-    mediaType: row.media_type as WireMessage["mediaType"],
-    mediaUrl: row.media_url ?? undefined,
-    reactions: row.reactions ?? undefined,
-  };
-}
+import { getDbPool } from "./db";
+import {
+  type SupabaseWireRow,
+  toSupabaseRow,
+  fromSupabaseRow,
+} from "@/types/wire";
+export {
+  type SupabaseWireRow,
+  toSupabaseRow,
+  fromSupabaseRow,
+};
 
 /**
  * Fetch all active wire messages from Supabase
  */
 export async function fetchSupabaseWireMessages(since: number = 0): Promise<WireMessage[] | null> {
-  const client = getSupabaseClient();
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      const now = Date.now();
+      const res = await pool.query(
+        `SELECT id, sender_id, recipient_id, encrypted_payload, timestamp, status,
+                disappearing_duration, expires_at, view_once, is_burned, is_pinned,
+                security_type, media_type, media_url, reactions
+         FROM public.wire_messages
+         WHERE ($1::bigint = 0 OR timestamp > $1::bigint)
+           AND (expires_at IS NULL OR expires_at > $2::bigint)
+         ORDER BY timestamp ASC`,
+        [since, now]
+      );
+      return res.rows.map((row) => ({
+        id: row.id,
+        senderId: row.sender_id,
+        recipientId: row.recipient_id,
+        encryptedPayload: typeof row.encrypted_payload === "string" ? JSON.parse(row.encrypted_payload) : row.encrypted_payload,
+        timestamp: Number(row.timestamp),
+        status: row.status,
+        disappearingDuration: row.disappearing_duration,
+        expiresAt: row.expires_at ? Number(row.expires_at) : null,
+        viewOnce: Boolean(row.view_once),
+        isBurned: Boolean(row.is_burned),
+        isPinned: Boolean(row.is_pinned),
+        securityType: row.security_type,
+        mediaType: row.media_type,
+        mediaUrl: row.media_url,
+        reactions: typeof row.reactions === "string" ? JSON.parse(row.reactions) : row.reactions || {},
+      }));
+    } catch (e: any) {
+      console.warn("[Pool] Fetch wire_messages fallback:", e.message);
+    }
+  }
+
+  const client = getSupabaseAdminClient() || getSupabaseClient();
   if (!client) return null;
 
   try {
@@ -107,8 +95,52 @@ export async function fetchSupabaseWireMessages(since: number = 0): Promise<Wire
  * Save / Upsert batch of wire messages to Supabase
  */
 export async function saveSupabaseWireMessages(messages: WireMessage[]): Promise<boolean> {
-  const client = getSupabaseClient();
-  if (!client || messages.length === 0) return false;
+  if (messages.length === 0) return true;
+
+  // 1. Direct PostgreSQL connection (Bypasses RLS)
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      for (const m of messages) {
+        await pool.query(
+          `INSERT INTO public.wire_messages (
+             id, sender_id, recipient_id, encrypted_payload, timestamp, status,
+             disappearing_duration, expires_at, view_once, is_burned, is_pinned,
+             security_type, media_type, media_url, reactions
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+           ON CONFLICT (id) DO UPDATE SET
+             status = EXCLUDED.status,
+             is_pinned = EXCLUDED.is_pinned,
+             is_burned = EXCLUDED.is_burned,
+             reactions = EXCLUDED.reactions`,
+          [
+            m.id,
+            m.senderId,
+            m.recipientId,
+            JSON.stringify(m.encryptedPayload),
+            m.timestamp,
+            m.status || "delivered",
+            m.disappearingDuration || null,
+            m.expiresAt || null,
+            Boolean(m.viewOnce),
+            Boolean(m.isBurned),
+            Boolean(m.isPinned),
+            m.securityType || "standard",
+            m.mediaType || null,
+            m.mediaUrl || null,
+            JSON.stringify(m.reactions || {}),
+          ]
+        );
+      }
+      return true;
+    } catch (poolErr: any) {
+      console.warn("[Pool] Save wire messages notice:", poolErr.message);
+    }
+  }
+
+  // 2. Supabase API fallback
+  const client = getSupabaseAdminClient() || getSupabaseClient();
+  if (!client) return false;
 
   try {
     const rows = messages.map(toSupabaseRow);

@@ -50,11 +50,13 @@ export function ChatSidebar({
 
   // Helper to get messages for a real user contact
   const getContactMessages = (contact: User) => {
-    return messages.filter(
-      (m) =>
-        (m.senderId === contact.id && m.recipientId === currentUser.id) ||
-        (m.senderId === currentUser.id && m.recipientId === contact.id)
-    );
+    const cId = String(contact.id || "").split("@")[0].toLowerCase();
+    const myId = String(currentUser.id || "").split("@")[0].toLowerCase();
+    return messages.filter((m) => {
+      const s = String(m.senderId || "").split("@")[0].toLowerCase();
+      const r = String(m.recipientId || "").split("@")[0].toLowerCase();
+      return (s === cId && r === myId) || (s === myId && r === cId);
+    });
   };
 
   const filteredContacts = effectiveContacts.filter((contact) => {

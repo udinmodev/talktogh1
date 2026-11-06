@@ -29,17 +29,22 @@ function sanitizeToWire(raw: Record<string, unknown>): WireMessage | null {
   }
 
   const ep = raw.encryptedPayload as Record<string, unknown>;
+  const cleanSender = String(raw.senderId || ep.senderId || "").split("@")[0].toLowerCase();
+  const rawRecipient = String(raw.recipientId || ep.recipientId || "");
+  const cleanRecipient = rawRecipient.startsWith("public-")
+    ? rawRecipient
+    : rawRecipient.split("@")[0].toLowerCase();
 
   return {
     id: String(raw.id),
-    senderId: String(raw.senderId || ep.senderId),
-    recipientId: String(raw.recipientId || ep.recipientId),
+    senderId: cleanSender,
+    recipientId: cleanRecipient,
     encryptedPayload: {
       ciphertext: String(ep.ciphertext || ""),
       iv: String(ep.iv || ""),
       algorithm: String(ep.algorithm || "AES-256-GCM (HKDF-SHA256)"),
-      senderId: String(ep.senderId || raw.senderId),
-      recipientId: String(ep.recipientId || raw.recipientId),
+      senderId: cleanSender,
+      recipientId: cleanRecipient,
       timestamp: Number(ep.timestamp || raw.timestamp || Date.now()),
       keyEpoch: typeof ep.keyEpoch === "number" ? ep.keyEpoch : undefined,
       aadDigest: typeof ep.aadDigest === "string" ? ep.aadDigest : undefined,
@@ -82,13 +87,13 @@ export async function GET(request: Request) {
       saveWireMessages(supabaseMsgs);
 
       // Strict user boundary isolation: Only return messages that belong to the querying user
-      const filtered = userId
-        ? supabaseMsgs.filter(
-            (m) =>
-              m.senderId.toLowerCase() === userId ||
-              m.recipientId.toLowerCase() === userId ||
-              m.recipientId.startsWith("public-")
-          )
+      const cleanUserId = userId.split("@")[0].toLowerCase();
+      const filtered = cleanUserId
+        ? supabaseMsgs.filter((m) => {
+            const s = String(m.senderId || "").split("@")[0].toLowerCase();
+            const r = String(m.recipientId || "").split("@")[0].toLowerCase();
+            return s === cleanUserId || r === cleanUserId || m.recipientId?.startsWith("public-");
+          })
         : supabaseMsgs;
 
       return NextResponse.json({
@@ -103,13 +108,13 @@ export async function GET(request: Request) {
 
   // 2. Fallback to zero-knowledge local persistent disk store
   const activeMessages = getActiveWireMessages(since);
-  const filteredActive = userId
-    ? activeMessages.filter(
-        (m) =>
-          m.senderId.toLowerCase() === userId ||
-          m.recipientId.toLowerCase() === userId ||
-          m.recipientId.startsWith("public-")
-      )
+  const cleanUserId = userId.split("@")[0].toLowerCase();
+  const filteredActive = cleanUserId
+    ? activeMessages.filter((m) => {
+        const s = String(m.senderId || "").split("@")[0].toLowerCase();
+        const r = String(m.recipientId || "").split("@")[0].toLowerCase();
+        return s === cleanUserId || r === cleanUserId || m.recipientId?.startsWith("public-");
+      })
     : activeMessages;
 
   return NextResponse.json({

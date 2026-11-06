@@ -20,6 +20,15 @@ export async function POST(request: Request) {
       );
     }
 
+    // Strict 3MB media size limit (3MB binary in base64 is ~4.2MB)
+    const MAX_BASE64_BYTES = 4.5 * 1024 * 1024;
+    if (typeof encryptedPayloadBase64 === "string" && encryptedPayloadBase64.length > MAX_BASE64_BYTES) {
+      return NextResponse.json(
+        { success: false, error: "Media size exceeds strict 3MB limit." },
+        { status: 413 }
+      );
+    }
+
     if (!process.env.IMAGEKIT_PRIVATE_KEY) {
       return NextResponse.json(
         { success: false, error: "ImageKit storage not configured on server." },

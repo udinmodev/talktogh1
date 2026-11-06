@@ -28,21 +28,29 @@ export interface KeyPairData {
   fingerprint: string;
 }
 
-// Convert ArrayBuffer to Base64
-export function bufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
+// Convert Uint8Array to Base64 in safe 32KB chunks to prevent maximum call stack size errors
+export function uint8ArrayToBase64(bytes: Uint8Array): string {
   let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const len = bytes.byteLength;
+  const chunkSize = 0x8000; // 32768
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
   }
   return btoa(binary);
+}
+
+// Convert ArrayBuffer to Base64 safely without call stack limit errors
+export function bufferToBase64(buffer: ArrayBuffer): string {
+  return uint8ArrayToBase64(new Uint8Array(buffer));
 }
 
 // Convert Base64 to ArrayBuffer
 export function base64ToBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;
@@ -288,14 +296,31 @@ export async function encryptMessageContent(
  * Decrypt ciphertext and parse the internal JSON structure containing text & link metadata.
  */
 export async function decryptMessageContent(
-  payload: EncryptedPayload,
+  payload: EncryptedPayload | string,
   key: CryptoKey
 ): Promise<DecryptedMessageContent> {
-  const ivBuffer = base64ToBuffer(payload.iv);
-  const cipherBuffer = base64ToBuffer(payload.ciphertext);
+  let p: any = payload;
+  if (typeof p === "string") {
+    try {
+      p = JSON.parse(p);
+    } catch {
+      return { text: p };
+    }
+  }
+
+  if (!p || typeof p !== "object" || !p.iv || !p.ciphertext) {
+    throw new Error("Invalid encrypted payload: missing iv or ciphertext");
+  }
+
+  const ivBuffer = base64ToBuffer(p.iv);
+  const cipherBuffer = base64ToBuffer(p.ciphertext);
+
+  const senderId = String(p.senderId || "");
+  const recipientId = String(p.recipientId || "");
+  const timestamp = Number(p.timestamp || 0);
 
   // Reconstruct exact AAD from payload metadata
-  const aad = buildAadBuffer(payload.senderId, payload.recipientId, payload.timestamp);
+  const aad = buildAadBuffer(senderId, recipientId, timestamp);
 
   let rawDecrypted = "";
   try {
