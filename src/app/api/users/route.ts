@@ -206,16 +206,8 @@ export async function GET(request: Request) {
     }
   }
 
-  // 4. Server message store fallback (wire-messages.json)
-  try {
-    const wireMsgs = getActiveWireMessages();
-    for (const msg of wireMsgs) {
-      if (msg.senderId) registerUserCandidate(msg.senderId);
-      if (msg.recipientId) registerUserCandidate(msg.recipientId);
-    }
-  } catch (e) {
-    console.warn("Notice reading wire messages for contacts:", e);
-  }
+  // 4. Note: Never synthesize user contacts from wire messages.
+  // Real contacts must strictly originate from registered database accounts (user_accounts/auth.users).
 
   // If a specific targetId was requested (e.g. from /[id] route), ensure it was checked
   let targetFound = targetId ? usersMap.get(targetId) || null : null;
