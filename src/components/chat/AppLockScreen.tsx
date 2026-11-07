@@ -29,19 +29,38 @@ export function AppLockScreen({
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [isPromptingBio, setIsPromptingBio] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownSeconds]);
 
   // Auto-prompt biometric on mount if enabled
   useEffect(() => {
-    if (biometricEnabled) {
+    if (biometricEnabled && cooldownSeconds === 0) {
       triggerBiometricAuth();
     }
-  }, [biometricEnabled]);
+  }, [biometricEnabled, cooldownSeconds]);
 
   const triggerBiometricAuth = async () => {
+    if (cooldownSeconds > 0) return;
     setIsPromptingBio(true);
     try {
       const res = await verifyBiometric(biometricCredentialId);
       if (res.success) {
+        setFailedAttempts(0);
         onUnlock();
       }
     } catch {
@@ -52,6 +71,7 @@ export function AppLockScreen({
   };
 
   const handleDigit = async (digit: string) => {
+    if (cooldownSeconds > 0) return;
     if (pin.length < 4) {
       const nextPin = pin + digit;
       setPin(nextPin);
@@ -60,17 +80,32 @@ export function AppLockScreen({
         if (pinHash) {
           const enteredHash = await hashPin(nextPin, username);
           if (enteredHash === pinHash) {
+            setFailedAttempts(0);
             onUnlock();
             return;
           }
         }
+        const nextFailed = failedAttempts + 1;
+        setFailedAttempts(nextFailed);
         setError(true);
         setTimeout(() => setPin(""), 600);
+
+        if (nextFailed >= 5) {
+          // Session lockout due to brute-force attempts
+          setTimeout(() => {
+            alert("Security Lockout: 5 failed PIN attempts exceeded. For your safety, this session has been locked.");
+            onLogout?.();
+          }, 650);
+        } else if (nextFailed >= 3) {
+          // 30-second penalty lockout
+          setCooldownSeconds(30);
+        }
       }
     }
   };
 
   const handleDelete = () => {
+    if (cooldownSeconds > 0) return;
     setPin((prev) => prev.slice(0, -1));
     setError(false);
   };
@@ -122,14 +157,18 @@ export function AppLockScreen({
             })}
           </div>
 
-          {error && (
+          {cooldownSeconds > 0 ? (
+            <div className="text-xs text-amber-600 mb-4 text-center font-medium bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl animate-pulse">
+              Too many failed attempts. Try again in {cooldownSeconds}s
+            </div>
+          ) : error ? (
             <p className="text-xs text-red-500 mb-4 text-center font-medium">
-              Incorrect passcode. Try again.
+              Incorrect passcode ({failedAttempts}/5 attempts). Try again.
             </p>
-          )}
+          ) : null}
 
           {/* Keypad */}
-          <div className="grid grid-cols-3 gap-2.5 w-full max-w-[240px]">
+          <div className={`grid grid-cols-3 gap-2.5 w-full max-w-[240px] ${cooldownSeconds > 0 ? "opacity-50 pointer-events-none" : ""}`}>
             {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((num) => (
               <button
                 key={num}

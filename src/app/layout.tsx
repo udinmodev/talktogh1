@@ -14,6 +14,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   themeColor: "#ffffff",
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({
@@ -22,8 +23,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="h-full w-full overflow-hidden bg-white text-[#050505] font-sans selection:bg-[#0084ff]/20 selection:text-[#0084ff]">
+    <html lang="en" className="h-full antialiased overflow-hidden">
+      <body className="h-full h-[100dvh] w-full overflow-hidden bg-white text-[#050505] font-sans selection:bg-[#0084ff]/20 selection:text-[#0084ff] fixed inset-0">
         <Suspense fallback={null}>
           <RootChatShell>{children}</RootChatShell>
         </Suspense>

@@ -12,6 +12,7 @@ function getRateCategory(pathname: string): keyof typeof RATE_LIMITS {
   if (pathname.startsWith("/api/keys")) return "keys";
   if (pathname.startsWith("/api/crypto")) return "crypto";
   if (pathname.startsWith("/api/upload")) return "upload";
+  if (pathname.startsWith("/api/messages")) return "messages";
   return "default";
 }
 
@@ -79,6 +80,9 @@ export function proxy(request: NextRequest) {
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
 
   return response;
 }

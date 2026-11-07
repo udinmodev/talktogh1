@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { getDbPool } from "@/lib/db";
 
-const MAX_APP_USERS = 2;
+const MAX_APP_USERS = 3;
 
 // GET /api/auth/register - Check registration availability & capacity status
 export async function GET() {
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
 
     const pool = getDbPool();
 
-    // 0. Strict 2-User Capacity Enforcement: Only 2 users total allowed across the entire app
+    // 0. Strict 3-User Capacity Enforcement: Only 3 users total allowed across the entire app
     let totalCount = 0;
     if (pool) {
       try {
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Registration is permanently closed. This private application has reached its maximum capacity of 2 users.",
+          error: "Registration is permanently closed. This private application has reached its maximum capacity of 3 users.",
           capacityReached: true,
           count: totalCount,
           maxCapacity: MAX_APP_USERS,

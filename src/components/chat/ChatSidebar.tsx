@@ -46,7 +46,7 @@ export function ChatSidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTab, setFilterTab] = useState<"all" | "unread" | "expiring">("all");
 
-  const effectiveContacts = contacts.length > 0 ? contacts : [contactUser];
+  const effectiveContacts = contacts.length > 0 ? contacts.filter((c) => c && c.id && c.id !== "none") : [];
 
   // Helper to get messages for a real user contact
   const getContactMessages = (contact: User) => {

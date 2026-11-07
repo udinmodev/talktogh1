@@ -219,6 +219,7 @@ export function ChatArea({
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
@@ -254,9 +255,23 @@ export function ChatArea({
     return () => clearInterval(interval);
   }, [messages]);
 
-  // Auto scroll to bottom when new messages arrive
+  // Scroll messages container without forcing entire page/window to scroll
+  const scrollToBottom = (smooth = true) => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
+      });
+    }
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    scrollToBottom(false);
+  }, []);
+
+  // Auto scroll to bottom when new messages arrive or peer typing state updates
+  useEffect(() => {
+    scrollToBottom(true);
   }, [messages, isPeerTyping]);
 
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -435,7 +450,7 @@ export function ChatArea({
 
   return (
     <div
-      className={`relative flex-1 h-full flex flex-col bg-white text-[#050505] overflow-hidden ${
+      className={`relative flex-1 h-full min-h-0 flex flex-col bg-white text-[#050505] overflow-hidden ${
         settings.preventCopyForward ? "select-none" : ""
       }`}
       onContextMenu={(e) => {
@@ -456,7 +471,7 @@ export function ChatArea({
       )}
 
       {/* Header - Facebook Messenger Clean Header */}
-      <header className="h-16 px-4 md:px-6 bg-white flex items-center justify-between border-b border-[#f0f2f5] z-20 shrink-0 text-[#050505] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <header className="sticky top-0 h-16 px-4 md:px-6 bg-white flex items-center justify-between border-b border-[#f0f2f5] z-30 shrink-0 text-[#050505] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
         <div className="flex items-center gap-3 min-w-0">
           {/* Mobile Back Button */}
           <button
@@ -583,7 +598,10 @@ export function ChatArea({
       )}
 
       {/* Message Canvas Area */}
-      <div className={`flex-1 overflow-y-auto px-4 md:px-8 lg:px-16 py-6 space-y-2 bg-white relative`}>
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 min-h-0 overflow-y-auto px-4 md:px-8 lg:px-16 py-6 space-y-2 bg-white relative overscroll-contain"
+      >
         {/* Subtle E2EE Notice Pill */}
         <div className="flex justify-center my-3">
           <div className="max-w-sm bg-[#f0f2f5] text-[#65676b] text-xs px-4 py-1.5 rounded-full text-center flex items-center gap-1.5 select-none font-medium">
@@ -1102,7 +1120,7 @@ export function ChatArea({
       )}
 
       {/* Facebook Messenger Clean Input Bar */}
-      <footer className="p-3 bg-white border-t border-[#f0f2f5] z-20 shrink-0">
+      <footer className="sticky bottom-0 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-white border-t border-[#f0f2f5] z-30 shrink-0">
         <div className="max-w-4xl mx-auto">
           {/* Editing Message Banner */}
           {editingMessage && (
@@ -1185,6 +1203,9 @@ export function ChatArea({
                   type="text"
                   value={inputText}
                   onChange={handleInputChange}
+                  onFocus={() => {
+                    setTimeout(() => scrollToBottom(true), 150);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       if (settings?.enterToSend === false) {
@@ -1193,7 +1214,7 @@ export function ChatArea({
                     }
                   }}
                   placeholder="Aa"
-                  className="w-full bg-transparent text-[#050505] placeholder:text-[#65676b] text-sm focus:outline-none"
+                  className="w-full bg-transparent text-[#050505] placeholder:text-[#65676b] text-base sm:text-sm focus:outline-none"
                 />
               </form>
 

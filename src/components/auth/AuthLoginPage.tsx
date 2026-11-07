@@ -30,7 +30,7 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
     userCount: number;
     maxCapacity: number;
     isRegistrationClosed: boolean;
-  }>({ userCount: 0, maxCapacity: 2, isRegistrationClosed: false });
+  }>({ userCount: 0, maxCapacity: 3, isRegistrationClosed: false });
 
   React.useEffect(() => {
     fetch("/api/auth/register")
@@ -40,7 +40,7 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
           const isClosed = Boolean(data.isRegistrationClosed);
           setCapacity({
             userCount: Number(data.userCount) || 0,
-            maxCapacity: Number(data.maxCapacity) || 2,
+            maxCapacity: Number(data.maxCapacity) || 3,
             isRegistrationClosed: isClosed,
           });
           if (isClosed) {
@@ -66,7 +66,7 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
         }
       } else {
         if (capacity.isRegistrationClosed) {
-          setError("Registration is closed. This private network only allows 2 users.");
+          setError("Registration is closed. This private network only allows 3 users.");
           setLoading(false);
           return;
         }
@@ -107,10 +107,10 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
               </h1>
               <p className="text-sm text-[#65676b] mt-1 font-normal">
                 {capacity.isRegistrationClosed
-                  ? "Private 2-Party Messenger • Network Full (2/2 users)"
+                  ? `Private Messenger • Network Full (${capacity.userCount}/${capacity.maxCapacity || 3} users)`
                   : mode === "login"
-                  ? "Connect with your partner on TalkTogether"
-                  : `Private 2-Party Messenger • ${capacity.userCount}/2 Registered`}
+                  ? "Connect securely on TalkTogether"
+                  : `Private Messenger • ${capacity.userCount}/${capacity.maxCapacity || 3} Registered`}
               </p>
             </div>
 
@@ -135,7 +135,7 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
                 disabled={capacity.isRegistrationClosed}
                 onClick={() => {
                   if (capacity.isRegistrationClosed) {
-                    setError("Registration is closed. This private network only allows 2 users maximum.");
+                    setError(`Registration is closed. This private network only allows ${capacity.maxCapacity || 3} users maximum.`);
                     return;
                   }
                   setMode("register");
@@ -148,9 +148,9 @@ export function AuthLoginPage({ onLoginSuccess }: AuthLoginPageProps) {
                     ? "bg-white text-[#0084ff] shadow-xs cursor-pointer"
                     : "text-[#65676b] hover:text-[#050505] cursor-pointer"
                 }`}
-                title={capacity.isRegistrationClosed ? "Network full: 2 users maximum" : undefined}
+                title={capacity.isRegistrationClosed ? `Network full: ${capacity.maxCapacity || 3} users maximum` : undefined}
               >
-                {capacity.isRegistrationClosed ? "Closed (2/2)" : "Create account"}
+                {capacity.isRegistrationClosed ? `Closed (${capacity.userCount}/${capacity.maxCapacity || 3})` : "Create account"}
               </button>
             </div>
 

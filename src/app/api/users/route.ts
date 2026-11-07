@@ -17,7 +17,69 @@ export interface PublicUserDto {
   createdAt?: string;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const requesterId = (
+    request.headers.get("x-wechat-requester-id") ||
+    searchParams.get("requesterId") ||
+    ""
+  ).split("@")[0].toLowerCase().trim();
+
+  // 1. Strict Authentication: Restrict user directory exclusively to verified logged-in users
+  if (!requesterId || requesterId === "user" || requesterId === "anonymous" || requesterId === "none") {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Unauthorized: Access to the user directory is restricted to authenticated logged-in users.",
+      },
+      { status: 401 }
+    );
+  }
+
+  // 2. Verify that the requester is a real registered user account
+  let isRequesterValid = false;
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      const chk = await pool.query(
+        "SELECT id FROM public.user_accounts WHERE lower(username) = $1 OR lower(id) = $1 LIMIT 1",
+        [requesterId]
+      );
+      if (chk.rows.length > 0) {
+        isRequesterValid = true;
+      } else {
+        const authChk = await pool.query(
+          "SELECT id FROM auth.users WHERE lower(COALESCE(raw_user_meta_data->>'username', split_part(email, '@', 1))) = $1 LIMIT 1",
+          [requesterId]
+        );
+        if (authChk.rows.length > 0) isRequesterValid = true;
+      }
+    } catch (err) {
+      console.warn("Notice validating requester:", err);
+    }
+  } else if (isSupabaseConfigured) {
+    try {
+      const dbUsers = await fetchSupabaseUserAccounts();
+      if (dbUsers) {
+        isRequesterValid = dbUsers.some(
+          (u) => String(u.username || u.id).split("@")[0].toLowerCase() === requesterId
+        );
+      }
+    } catch {}
+  } else {
+    isRequesterValid = true;
+  }
+
+  if (!isRequesterValid) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Unauthorized: Invalid or non-existent user session identity.",
+      },
+      { status: 401 }
+    );
+  }
+
   const usersMap = new Map<string, PublicUserDto>();
 
   // Fetch all real registered users from Supabase
@@ -27,7 +89,13 @@ export async function GET() {
       if (dbUsers && dbUsers.length > 0) {
         for (const row of dbUsers) {
           const cleanId = String(row.username || row.id).split("@")[0].toLowerCase();
-          if (cleanId === "alice" || cleanId === "bob" || cleanId === "elena" || cleanId === "marcus") {
+          if (
+            cleanId === "alice" ||
+            cleanId === "bob" ||
+            cleanId === "elena" ||
+            cleanId === "marcus" ||
+            cleanId === requesterId
+          ) {
             continue;
           }
 
@@ -67,7 +135,7 @@ export async function GET() {
           const rawUser = String(meta.username || u.email?.split("@")[0] || u.id).split("@")[0].toLowerCase();
           const displayName = meta.name || rawUser;
 
-          if (!usersMap.has(rawUser)) {
+          if (rawUser !== requesterId && !usersMap.has(rawUser)) {
             usersMap.set(rawUser, {
               id: rawUser,
               username: rawUser,

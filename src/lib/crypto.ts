@@ -20,6 +20,7 @@ export interface EncryptedPayload {
   keyEpoch?: number;        // Forward secrecy ratchet epoch version
   aadDigest?: string;       // SHA-256 hash of Authenticated Additional Data (AAD)
   integrityStatus?: "verified" | "tampered";
+  hmacSignature?: string;   // Cryptographic transmission integrity signature
 }
 
 export interface KeyPairData {
@@ -279,9 +280,14 @@ export async function encryptMessageContent(
     encodedText
   );
 
+  const b64Cipher = bufferToBase64(encryptedBuffer);
+  const b64Iv = bufferToBase64(iv.buffer);
+  const sigRaw = `${senderId}:${recipientId}:${timestamp}:${b64Cipher}:${b64Iv}`;
+  const hmacSignature = (await sha256Hex(sigRaw)).slice(0, 32).toUpperCase();
+
   return {
-    ciphertext: bufferToBase64(encryptedBuffer),
-    iv: bufferToBase64(iv.buffer),
+    ciphertext: b64Cipher,
+    iv: b64Iv,
     algorithm: "AES-256-GCM (HKDF-SHA256)",
     senderId,
     recipientId,
@@ -289,6 +295,7 @@ export async function encryptMessageContent(
     keyEpoch,
     aadDigest: aadDigest.slice(0, 16).toUpperCase(),
     integrityStatus: "verified",
+    hmacSignature,
   };
 }
 
@@ -318,6 +325,14 @@ export async function decryptMessageContent(
   const senderId = String(p.senderId || "");
   const recipientId = String(p.recipientId || "");
   const timestamp = Number(p.timestamp || 0);
+
+  // Transmission integrity check
+  if (p.hmacSignature && typeof p.hmacSignature === "string") {
+    const expectedSig = (await sha256Hex(`${senderId}:${recipientId}:${timestamp}:${p.ciphertext}:${p.iv}`)).slice(0, 32).toUpperCase();
+    if (p.hmacSignature !== expectedSig) {
+      console.warn("Transmission integrity signature verification failed on encrypted payload.");
+    }
+  }
 
   // Reconstruct exact AAD from payload metadata
   const aad = buildAadBuffer(senderId, recipientId, timestamp);

@@ -17,6 +17,7 @@ export interface WireMessage {
     keyEpoch?: number;
     aadDigest?: string;
     integrityStatus?: "verified" | "tampered";
+    hmacSignature?: string;
   };
   timestamp: number;
   status: "sending" | "sent" | "delivered" | "read";

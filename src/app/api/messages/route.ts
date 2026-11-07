@@ -27,46 +27,104 @@ import {
   wipeSupabaseWireMessages,
 } from "@/lib/supabase-store";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { getDbPool } from "@/lib/db";
 
-// Strict input sanitizer to guarantee zero unencrypted text/links are saved
+// Strict input sanitizer to guarantee zero unencrypted text/links are saved and prevent replay/tamper attacks
 function sanitizeToWire(raw: Record<string, unknown>): WireMessage | null {
   if (!raw || typeof raw.id !== "string" || !raw.encryptedPayload) {
     return null;
   }
 
   const ep = raw.encryptedPayload as Record<string, unknown>;
-  const cleanSender = String(raw.senderId || ep.senderId || "").split("@")[0].toLowerCase();
+  const ciphertext = String(ep.ciphertext || "").trim();
+  const iv = String(ep.iv || "").trim();
+
+  // 1. Strict ciphertext & IV validation: Must be non-empty valid Base64 within strict size limits
+  if (!ciphertext || ciphertext.length > 500000 || !/^[A-Za-z0-9+/=]+$/.test(ciphertext)) {
+    return null;
+  }
+  if (!iv || iv.length > 32 || !/^[A-Za-z0-9+/=]+$/.test(iv)) {
+    return null;
+  }
+
+  // 2. Sender and recipient identifier validation
+  const cleanSender = String(raw.senderId || ep.senderId || "")
+    .split("@")[0]
+    .toLowerCase()
+    .replace(/[^a-zA-Z0-9._-]/g, "")
+    .slice(0, 64);
+
   const rawRecipient = String(raw.recipientId || ep.recipientId || "");
-  const cleanRecipient = rawRecipient.startsWith("public-")
+  const cleanRecipient = (rawRecipient.startsWith("public-")
     ? rawRecipient
-    : rawRecipient.split("@")[0].toLowerCase();
+    : rawRecipient.split("@")[0].toLowerCase()
+  )
+    .replace(/[^a-zA-Z0-9._-]/g, "")
+    .slice(0, 64);
+
+  if (!cleanSender || !cleanRecipient) {
+    return null;
+  }
+
+  // 3. Anti-Replay Protection: Enforce strict timestamp window (10 min past, 5 min future)
+  const now = Date.now();
+  const ts = Number(ep.timestamp || raw.timestamp || now);
+  if (isNaN(ts) || ts < now - 10 * 60 * 1000 || ts > now + 5 * 60 * 1000) {
+    return null;
+  }
+
+  // 4. Reactions Sanitization (max 10 reactions, safe emoji length <= 8)
+  let cleanReactions: Record<string, string> | undefined = undefined;
+  if (raw.reactions && typeof raw.reactions === "object") {
+    cleanReactions = {};
+    const entries = Object.entries(raw.reactions as Record<string, unknown>);
+    for (const [user, emoji] of entries.slice(0, 10)) {
+      const cleanU = String(user).split("@")[0].toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 64);
+      const cleanE = String(emoji || "").slice(0, 8);
+      if (cleanU && cleanE) {
+        cleanReactions[cleanU] = cleanE;
+      }
+    }
+  }
+
+  // 5. Safe mediaUrl check
+  let safeMediaUrl: string | undefined = undefined;
+  if (typeof raw.mediaUrl === "string") {
+    const trimmed = raw.mediaUrl.trim();
+    if (trimmed.startsWith("https://") || trimmed.startsWith("data:image/") || trimmed.startsWith("data:audio/")) {
+      safeMediaUrl = trimmed.slice(0, 500000);
+    }
+  }
 
   return {
-    id: String(raw.id),
+    id: String(raw.id).replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 64),
     senderId: cleanSender,
     recipientId: cleanRecipient,
     encryptedPayload: {
-      ciphertext: String(ep.ciphertext || ""),
-      iv: String(ep.iv || ""),
-      algorithm: String(ep.algorithm || "AES-256-GCM (HKDF-SHA256)"),
+      ciphertext,
+      iv,
+      algorithm: "AES-256-GCM (HKDF-SHA256)",
       senderId: cleanSender,
       recipientId: cleanRecipient,
-      timestamp: Number(ep.timestamp || raw.timestamp || Date.now()),
-      keyEpoch: typeof ep.keyEpoch === "number" ? ep.keyEpoch : undefined,
-      aadDigest: typeof ep.aadDigest === "string" ? ep.aadDigest : undefined,
+      timestamp: ts,
+      keyEpoch: typeof ep.keyEpoch === "number" ? Math.max(1, Math.min(1000, ep.keyEpoch)) : undefined,
+      aadDigest: typeof ep.aadDigest === "string" ? ep.aadDigest.slice(0, 32) : undefined,
       integrityStatus: ep.integrityStatus === "verified" ? "verified" : undefined,
+      hmacSignature: typeof ep.hmacSignature === "string" ? ep.hmacSignature.slice(0, 64) : undefined,
     },
-    timestamp: Number(raw.timestamp || Date.now()),
-    status: (raw.status as WireMessage["status"]) || "delivered",
-    disappearingDuration: typeof raw.disappearingDuration === "number" ? raw.disappearingDuration : null,
+    timestamp: ts,
+    status: (raw.status === "read" || raw.status === "delivered" || raw.status === "sending") ? raw.status : "delivered",
+    disappearingDuration: typeof raw.disappearingDuration === "number" && raw.disappearingDuration > 0
+      ? Math.min(604800, raw.disappearingDuration)
+      : null,
     expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : null,
     viewOnce: Boolean(raw.viewOnce),
     isBurned: Boolean(raw.isBurned),
     isPinned: Boolean(raw.isPinned),
-    securityType: raw.securityType as WireMessage["securityType"],
-    mediaType: raw.mediaType as WireMessage["mediaType"],
-    mediaUrl: typeof raw.mediaUrl === "string" ? raw.mediaUrl : undefined,
-    reactions: raw.reactions as Record<string, string> | undefined,
+    securityType: (raw.securityType === "disappearing" || raw.securityType === "view_once" || raw.securityType === "confidential") ? raw.securityType : "standard",
+    mediaType: (raw.mediaType === "image" || raw.mediaType === "voice" || raw.mediaType === "doc") ? raw.mediaType : undefined,
+    mediaUrl: safeMediaUrl,
+    reactions: cleanReactions,
   };
 }
 
@@ -165,6 +223,39 @@ export async function POST(request: Request) {
     if (action === "send" && message) {
       const wire = sanitizeToWire(message);
       if (wire) {
+        // Enforce that recipient is not 'none' and not sender
+        if (wire.recipientId === "none" || wire.recipientId === wire.senderId) {
+          return NextResponse.json(
+            { success: false, error: "Cannot send message: Invalid recipient." },
+            { status: 400 }
+          );
+        }
+
+        // Verify recipient exists in database
+        const pool = getDbPool();
+        if (pool) {
+          try {
+            const chk = await pool.query(
+              "SELECT id FROM public.user_accounts WHERE lower(username) = $1 OR lower(id) = $1 LIMIT 1",
+              [wire.recipientId]
+            );
+            if (chk.rows.length === 0) {
+              const authChk = await pool.query(
+                "SELECT id FROM auth.users WHERE lower(COALESCE(raw_user_meta_data->>'username', split_part(email, '@', 1))) = $1 LIMIT 1",
+                [wire.recipientId]
+              );
+              if (authChk.rows.length === 0 && !wire.recipientId.startsWith("public-")) {
+                return NextResponse.json(
+                  { success: false, error: `Recipient @${wire.recipientId} does not exist.` },
+                  { status: 404 }
+                );
+              }
+            }
+          } catch (err) {
+            console.warn("Notice checking recipient exists:", err);
+          }
+        }
+
         if (isSupabaseConfigured) {
           await saveSupabaseWireMessages([wire]);
         }

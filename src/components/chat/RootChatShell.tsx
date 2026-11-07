@@ -44,9 +44,13 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       ? pathname.replace(/^\//, "").split("/")[0]
       : "";
   const rawId = params?.id ? (Array.isArray(params.id) ? params.id[0] : params.id) : pathId;
+  const decodedRawId = rawId ? decodeURIComponent(rawId).split("@")[0].toLowerCase() : "";
   const routeContactId =
-    rawId && rawId !== "favicon.ico" && !rawId.startsWith("api")
-      ? decodeURIComponent(rawId).split("@")[0].toLowerCase()
+    decodedRawId &&
+    decodedRawId !== "favicon.ico" &&
+    !decodedRawId.startsWith("api") &&
+    decodedRawId !== "none"
+      ? decodedRawId
       : "";
 
   // User Authentication & Session State
@@ -68,6 +72,9 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     if (routeContactId) {
       setSelectedContactId(routeContactId);
       setMobileView("chat");
+    } else {
+      setSelectedContactId("");
+      setMobileView("sidebar");
     }
   }, [routeContactId]);
 
@@ -246,6 +253,28 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     };
   }, []);
 
+  // Track visual viewport on mobile (handles keyboard open/close without pushing header off-screen)
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return;
+
+    const updateHeight = () => {
+      const vh = window.visualViewport?.height;
+      if (vh) {
+        document.documentElement.style.setProperty("--visual-viewport-height", `${vh}px`);
+      }
+    };
+
+    updateHeight();
+    const vv = window.visualViewport;
+    vv.addEventListener("resize", updateHeight);
+    vv.addEventListener("scroll", updateHeight);
+
+    return () => {
+      vv.removeEventListener("resize", updateHeight);
+      vv.removeEventListener("scroll", updateHeight);
+    };
+  }, []);
+
   // Modals state
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState(false);
   const [isSecurityCenterOpen, setIsSecurityCenterOpen] = useState(false);
@@ -269,17 +298,15 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     isOnline: isOnline,
   };
 
-  const partnerContact = contacts.find((c) => c.id !== cleanCurrentId);
   const rawActiveChatId = (selectedContactId || routeContactId || "").split("@")[0].toLowerCase();
   const activeChatId = (
     rawActiveChatId && rawActiveChatId !== "none" && rawActiveChatId !== cleanCurrentId
       ? rawActiveChatId
-      : partnerContact?.id || ""
+      : ""
   ).split("@")[0].toLowerCase();
 
   const contactUser: User =
-    (activeChatId && activeChatId !== "none" ? contacts.find((c) => c.id === activeChatId) : null) ||
-    partnerContact || {
+    (activeChatId && activeChatId !== "none" ? contacts.find((c) => c.id === activeChatId) : null) || {
       id: activeChatId || "none",
       name:
         activeChatId && activeChatId !== "none"
@@ -305,14 +332,22 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       setIsLoadingContacts(false);
     }, 2500);
 
+    const myCleanId = String(myId || "").split("@")[0].toLowerCase();
+    if (!myCleanId || myCleanId === "user" || myCleanId === "none") {
+      clearTimeout(safetyTimer);
+      setIsLoadingContacts(false);
+      return;
+    }
+
     try {
-      const res = await fetch("/api/users", {
-        headers: getInternalApiHeaders(),
+      const res = await fetch(`/api/users?requesterId=${encodeURIComponent(myCleanId)}`, {
+        headers: getInternalApiHeaders({
+          "x-wechat-requester-id": myCleanId,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
         if (data.users && data.users.length > 0) {
-          const myCleanId = String(myId || "").split("@")[0].toLowerCase();
           const registeredUsers: User[] = data.users
             .filter((u: any) => String(u.id || u.username || "").split("@")[0].toLowerCase() !== myCleanId)
             .map((u: any) => {
@@ -333,12 +368,6 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
           setContacts(registeredUsers);
           if (routeContactId && routeContactId !== myCleanId) {
             setSelectedContactId(routeContactId);
-          } else if (registeredUsers.length === 1) {
-            const partner = registeredUsers[0].id;
-            setSelectedContactId(partner);
-            if (pathname !== `/${partner}`) {
-              router.replace(`/${partner}`);
-            }
           }
         }
       }
@@ -708,24 +737,34 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     };
   }, [messages]);
 
-  // Privacy Curtain
+  // Privacy Curtain & App Concealment on Blur / Tab Switch
   useEffect(() => {
     const handleBlur = () => {
       if (settings.privacyCurtain) setIsWindowBlurred(true);
     };
     const handleFocus = () => setIsWindowBlurred(false);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (settings.privacyCurtain) setIsWindowBlurred(true);
+      } else if (document.visibilityState === "visible") {
+        setIsWindowBlurred(false);
+      }
+    };
 
     window.addEventListener("blur", handleBlur);
     window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener("blur", handleBlur);
       window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [settings.privacyCurtain]);
 
-  // Inactivity Auto-Lock
+  // Inactivity Auto-Lock & Session Integrity Safeguard
   useEffect(() => {
-    if (!settings.appLockEnabled || isAppLocked) return;
+    const isLockConfigured = Boolean(authUser?.hasPin || settings.appLockEnabled || settings.appLockPinHash);
+    if (!isLockConfigured || isAppLocked) return;
 
     let inactivityTimeout: NodeJS.Timeout;
     const lockTimeMs = (settings.inactivityLockSeconds || 60) * 1000;
@@ -733,11 +772,12 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     const resetTimer = () => {
       clearTimeout(inactivityTimeout);
       inactivityTimeout = setTimeout(() => {
+        setSessionUnlocked(false);
         setIsAppLocked(true);
       }, lockTimeMs);
     };
 
-    const activityEvents = ["mousedown", "keydown", "touchstart", "scroll"];
+    const activityEvents = ["mousedown", "keydown", "touchstart", "scroll", "pointerdown"];
     activityEvents.forEach((evt) => window.addEventListener(evt, resetTimer, { passive: true }));
     resetTimer();
 
@@ -745,7 +785,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
       clearTimeout(inactivityTimeout);
       activityEvents.forEach((evt) => window.removeEventListener(evt, resetTimer));
     };
-  }, [settings.appLockEnabled, settings.inactivityLockSeconds, isAppLocked]);
+  }, [authUser?.hasPin, settings.appLockEnabled, settings.appLockPinHash, settings.inactivityLockSeconds, isAppLocked]);
 
   // Multi-Tab Sync with BroadcastChannel
   useEffect(() => {
@@ -903,6 +943,13 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
 
       if (!targetId || targetId === "none") {
         console.warn("No recipient selected to send message to.");
+        return;
+      }
+
+      // Strict validation: recipient must be a real registered contact, not fake or non-existent
+      const contactExists = contacts.some((c) => c.id === targetId);
+      if (!contactExists) {
+        console.warn(`Blocked message sending: Recipient @${targetId} does not exist in registered directory.`);
         return;
       }
 
@@ -1411,7 +1458,13 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
 
   return (
     <ChatContext.Provider value={contextValue}>
-      <div className="relative w-screen h-screen overflow-hidden bg-white flex flex-col font-sans text-[#050505]">
+      <div
+        className="fixed inset-0 w-full h-full overflow-hidden bg-white flex flex-col font-sans text-[#050505]"
+        style={{
+          height: "var(--visual-viewport-height, 100dvh)",
+          maxHeight: "var(--visual-viewport-height, 100dvh)",
+        }}
+      >
         {/* Immediate Internet Cutdown Alert Banner */}
         {(!isOnline || networkError) && (
           <div className="bg-[#fa383e] text-white px-4 py-2 flex items-center justify-between text-xs md:text-sm font-semibold shadow-md z-[80] shrink-0 animate-in slide-in-from-top-1">
@@ -1451,7 +1504,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
 
         {/* Main App Container - Single Persistent Layout for Sidebar & Chat */}
         <div
-          className={`flex-1 flex overflow-hidden relative ${
+          className={`flex-1 min-h-0 flex overflow-hidden relative ${
             isWindowBlurred ? "privacy-blur" : ""
           }`}
         >
@@ -1467,7 +1520,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
               contacts={contacts}
               messages={messages}
               settings={settings}
-              selectedChatId={contactUser.id}
+              selectedChatId={selectedContactId || routeContactId || ""}
               isLoading={isLoadingContacts}
               isOnline={isOnline}
               onSelectChat={(id) => {
@@ -1500,7 +1553,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
 
           {/* Active Chat Content / Home Slot */}
           <div
-            className={`h-full flex-1 ${
+            className={`h-full flex-1 min-h-0 min-w-0 flex-col overflow-hidden ${
               mobileView === "chat" ? "flex" : "hidden md:flex"
             }`}
           >
