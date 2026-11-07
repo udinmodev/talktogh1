@@ -18,7 +18,12 @@ export interface PublicUserDto {
   createdAt?: string;
 }
 
-const FORBIDDEN_MOCK_USERS = new Set(["alice", "bob", "elena", "marcus", "user", "anonymous", "none", "0", "non"]);
+import { getCachedDirectory, setCachedDirectory } from "@/lib/user-directory";
+
+const FORBIDDEN_MOCK_USERS = new Set([
+  "alice", "bob", "elena", "marcus", "user", "anonymous", "none", "0", "non",
+  "vijay", "vijaysing4hadv74", "vijaysinghad73", "vijaysinghad74"
+]);
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -33,6 +38,21 @@ export async function GET(request: Request) {
     searchParams.get("userId") ||
     ""
   ).split("@")[0].toLowerCase().trim();
+
+  // Fast-path: server memory cache for standard contact list requests
+  const cachedUsers = !targetId ? getCachedDirectory() : null;
+  if (cachedUsers) {
+    if (requesterId && !FORBIDDEN_MOCK_USERS.has(requesterId) && requesterId.length >= 3) {
+      const filtered = cachedUsers.filter((u) => u.id !== requesterId);
+      return NextResponse.json({
+        success: true,
+        count: filtered.length,
+        users: filtered,
+        targetUser: null,
+        cached: true,
+      });
+    }
+  }
 
   // 1. Strict Authentication: Restrict user directory exclusively to verified logged-in users
   if (!requesterId || requesterId === "user" || requesterId === "anonymous" || requesterId === "none") {
@@ -160,40 +180,34 @@ export async function GET(request: Request) {
     });
   };
 
-  // 1. Query pool: public.user_accounts
+  // 1. Parallel database queries for maximum performance
   if (pool) {
     try {
-      const accRes = await pool.query(
-        "SELECT id, username, name, avatar, created_at FROM public.user_accounts"
-      );
-      if (accRes.rows && accRes.rows.length > 0) {
-        for (const row of accRes.rows) {
+      const [accResult, authResult] = await Promise.allSettled([
+        pool.query("SELECT id, username, name, avatar, created_at FROM public.user_accounts"),
+        pool.query("SELECT id, email, raw_user_meta_data, created_at FROM auth.users"),
+      ]);
+
+      if (accResult.status === "fulfilled" && accResult.value.rows) {
+        for (const row of accResult.value.rows) {
           registerUserCandidate(row.username || row.id, row.name, row.avatar, row.created_at);
         }
       }
-    } catch (e) {
-      console.warn("Notice reading user_accounts via pool:", e);
-    }
 
-    // 2. Query pool: auth.users
-    try {
-      const authRes = await pool.query(
-        "SELECT id, email, raw_user_meta_data, created_at FROM auth.users"
-      );
-      if (authRes.rows && authRes.rows.length > 0) {
-        for (const u of authRes.rows) {
+      if (authResult.status === "fulfilled" && authResult.value.rows) {
+        for (const u of authResult.value.rows) {
           const meta = u.raw_user_meta_data || {};
           const rawUser = String(meta.username || u.email?.split("@")[0] || u.id);
           registerUserCandidate(rawUser, meta.name, meta.avatar, u.created_at);
         }
       }
-    } catch (authErr) {
-      console.warn("Notice reading auth.users via pool:", authErr);
+    } catch (e) {
+      console.warn("Notice querying user accounts via pool:", e);
     }
   }
 
-  // 3. Supabase REST Client
-  if (isSupabaseConfigured) {
+  // 2. Supabase REST fallback only if pool produced 0 candidates
+  if (usersMap.size === 0 && isSupabaseConfigured) {
     try {
       const dbUsers = await fetchSupabaseUserAccounts();
       if (dbUsers && dbUsers.length > 0) {
@@ -206,7 +220,7 @@ export async function GET(request: Request) {
     }
   }
 
-  // 4. Note: Never synthesize user contacts from wire messages.
+  // 3. Note: Never synthesize user contacts from wire messages.
   // Real contacts must strictly originate from registered database accounts (user_accounts/auth.users).
 
   // If a specific targetId was requested (e.g. from /[id] route), ensure it was checked
@@ -226,6 +240,11 @@ export async function GET(request: Request) {
   }
 
   const usersList = Array.from(usersMap.values());
+
+  // Cache directory on server for fast subsequent responses
+  if (!targetId && usersList.length > 0) {
+    setCachedDirectory(usersList);
+  }
 
   return NextResponse.json({
     success: true,

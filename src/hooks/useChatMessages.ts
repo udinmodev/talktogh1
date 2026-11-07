@@ -29,6 +29,37 @@ interface UseChatMessagesProps {
   isAuthLoaded: boolean;
 }
 
+const FORBIDDEN_MOCK_ACCOUNTS = new Set([
+  "alice", "bob", "elena", "marcus", "user", "anonymous", "none", "0", "non",
+  "vijay", "vijaysing4hadv74", "vijaysinghad73", "vijaysinghad74"
+]);
+
+function getInitialCachedContacts(): User[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const sessionRaw = sessionStorage.getItem("wechat_current_auth_user_v2");
+    const rawUser = sessionRaw || localStorage.getItem("wechat_current_auth_user_v2");
+    if (rawUser) {
+      const u = JSON.parse(rawUser);
+      const uid = String(u?.username || "").split("@")[0].toLowerCase();
+      if (uid) {
+        const rawCached =
+          sessionStorage.getItem(`wechat_cache_contacts_${uid}`) ||
+          localStorage.getItem(`wechat_cache_contacts_${uid}`);
+        if (rawCached) {
+          const parsed = JSON.parse(rawCached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.filter(
+              (c: User) => c && c.id && !FORBIDDEN_MOCK_ACCOUNTS.has(c.id.toLowerCase())
+            );
+          }
+        }
+      }
+    }
+  } catch {}
+  return [];
+}
+
 export function useChatMessages({
   cleanCurrentId,
   currentUser,
@@ -41,9 +72,12 @@ export function useChatMessages({
   setSelectedContactId,
   isAuthLoaded,
 }: UseChatMessagesProps) {
-  // Dynamic real registered users directory
-  const [contacts, setContacts] = useState<User[]>([]);
-  const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(true);
+  // Dynamic real registered users directory with instant cached first-paint (0ms loading)
+  const [contacts, setContacts] = useState<User[]>(() => getInitialCachedContacts());
+  const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(() => {
+    const initialCached = getInitialCachedContacts();
+    return initialCached.length === 0;
+  });
 
   // Crypto Keys in state
   const [sessionKey, setSessionKey] = useState<CryptoKey | null>(null);
@@ -130,7 +164,10 @@ export function useChatMessages({
 
         if (rawList.length > 0) {
           const registeredUsers: User[] = rawList
-            .filter((u: any) => String(u.id || u.username || "").split("@")[0].toLowerCase() !== myCleanId)
+            .filter((u: any) => {
+              const cId = String(u.id || u.username || "").split("@")[0].toLowerCase();
+              return cId && cId !== myCleanId && !FORBIDDEN_MOCK_ACCOUNTS.has(cId);
+            })
             .map((u: any) => {
               const cleanContactId = String(u.id || u.username || "").split("@")[0].toLowerCase();
               return {
@@ -147,6 +184,13 @@ export function useChatMessages({
             });
 
           setContacts(registeredUsers);
+          // Persist contacts in local/session cache for 0ms instant loading
+          try {
+            const cacheStr = JSON.stringify(registeredUsers);
+            sessionStorage.setItem(`wechat_cache_contacts_${myCleanId}`, cacheStr);
+            localStorage.setItem(`wechat_cache_contacts_${myCleanId}`, cacheStr);
+          } catch {}
+
           preloadPairSessionKeys(myCleanId, registeredUsers.map((u) => u.id));
           if (routeContactId && routeContactId !== myCleanId) {
             setSelectedContactId(routeContactId);

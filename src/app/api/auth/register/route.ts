@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { getDbPool } from "@/lib/db";
+import { invalidateUserDirectoryCache } from "@/lib/user-directory";
 
 const MAX_APP_USERS = 3;
 
@@ -206,6 +207,8 @@ export async function POST(request: Request) {
         created_at: new Date().toISOString(),
       });
     }
+
+    invalidateUserDirectoryCache();
 
     const userPayload = {
       id: cleanUser,
