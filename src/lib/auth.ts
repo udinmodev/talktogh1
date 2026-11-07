@@ -183,22 +183,30 @@ function saveAllUsers(users: Record<string, AuthUser & { passwordHash: string }>
 }
 
 /**
- * Get the currently logged-in user (null if on login screen)
+ * Get the currently logged-in user (null if on login screen).
+ * Checks tab-isolated sessionStorage first so multiple accounts in separate tabs
+ * or windows don't overwrite each other or kick each other out.
  */
 export function getCurrentAuthUser(): AuthUser | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(STORAGE_CURRENT_USER_KEY);
+    const sessionRaw = sessionStorage.getItem(STORAGE_CURRENT_USER_KEY);
+    const raw = sessionRaw || localStorage.getItem(STORAGE_CURRENT_USER_KEY);
     if (!raw) return null;
     const basic = JSON.parse(raw) as any;
     if (basic.pin) {
       delete basic.pin;
-      localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(basic));
+      try {
+        if (sessionRaw) sessionStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(basic));
+        localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(basic));
+      } catch {}
     }
     // Strict session expiry check (Auto-invalidate expired sessions)
     if (basic.sessionExpiresAt && Number(basic.sessionExpiresAt) <= Date.now()) {
+      sessionStorage.removeItem(STORAGE_CURRENT_USER_KEY);
       localStorage.removeItem(STORAGE_CURRENT_USER_KEY);
-      sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
+      const cleanUser = String(basic.username || "").toLowerCase();
+      if (cleanUser) sessionStorage.removeItem(`wechat_session_unlocked_${cleanUser}`);
       return null;
     }
     const all = loadAllUsers();
@@ -210,35 +218,39 @@ export function getCurrentAuthUser(): AuthUser | null {
   }
 }
 
-// In-memory unlocked flag: does NOT survive page refresh (guarantees auto-lock on page refresh)
-let isMemoryUnlocked = false;
-
-if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", () => {
-    isMemoryUnlocked = false;
-    sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
-  });
-}
-
 /**
- * Check if the active session is currently unlocked with Biometric/PIN
+ * Check if the active session is currently unlocked with Biometric/PIN.
+ * Scoped per user identity so tabs or multiple accounts don't lock each other out.
  */
-export function isSessionUnlocked(): boolean {
+export function isSessionUnlocked(username?: string): boolean {
   if (typeof window === "undefined") return false;
-  return isMemoryUnlocked;
+  try {
+    const user = username
+      ? username.trim().toLowerCase()
+      : getCurrentAuthUser()?.username?.trim().toLowerCase();
+    if (!user) return false;
+    return sessionStorage.getItem(`wechat_session_unlocked_${user}`) === "true";
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Mark active session unlocked
+ * Mark active session unlocked (scoped per user identity in tab-isolated sessionStorage)
  */
-export function setSessionUnlocked(unlocked: boolean) {
-  isMemoryUnlocked = unlocked;
+export function setSessionUnlocked(unlocked: boolean, username?: string) {
   if (typeof window === "undefined") return;
-  if (unlocked) {
-    sessionStorage.setItem(STORAGE_SESSION_UNLOCKED_KEY, "true");
-  } else {
-    sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
-  }
+  try {
+    const user = username
+      ? username.trim().toLowerCase()
+      : getCurrentAuthUser()?.username?.trim().toLowerCase();
+    if (!user) return;
+    if (unlocked) {
+      sessionStorage.setItem(`wechat_session_unlocked_${user}`, "true");
+    } else {
+      sessionStorage.removeItem(`wechat_session_unlocked_${user}`);
+    }
+  } catch {}
 }
 
 /**
@@ -270,8 +282,13 @@ export async function loginUser(
       const all = loadAllUsers();
       all[user.username] = { ...sessionUser, passwordHash: "" };
       saveAllUsers(all);
+
+      // Save to tab-isolated sessionStorage (for multi-account tab isolation) AND localStorage (fallback)
+      sessionStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(sessionUser));
       localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(sessionUser));
-      sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
+
+      // User just authenticated with password - mark active session unlocked
+      setSessionUnlocked(true, sessionUser.username);
       return { success: true, user: sessionUser };
     }
 
@@ -294,8 +311,9 @@ export async function loginUser(
         sessionToken: session.token,
         sessionExpiresAt: session.expiresAt,
       };
+      sessionStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(sessionUser));
       localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(sessionUser));
-      sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
+      setSessionUnlocked(true, sessionUser.username);
       return { success: true, user: sessionUser };
     }
     return { success: false, error: "Incorrect password. Please try again." };
@@ -339,7 +357,10 @@ export async function registerUser(
       const all = loadAllUsers();
       all[user.username] = { ...sessionUser, passwordHash: "" };
       saveAllUsers(all);
+
+      sessionStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(sessionUser));
       localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(sessionUser));
+      setSessionUnlocked(true, sessionUser.username);
       return { success: true, user: sessionUser };
     }
 
@@ -387,8 +408,9 @@ export async function completeSecuritySetup(
 
   all[cleanUser] = updated;
   saveAllUsers(all);
+  sessionStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(updated));
   localStorage.setItem(STORAGE_CURRENT_USER_KEY, JSON.stringify(updated));
-  setSessionUnlocked(true);
+  setSessionUnlocked(true, cleanUser);
 
   // Sync to Supabase DB via setup API - zero plaintext PIN transmitted!
   try {
@@ -424,11 +446,14 @@ export async function verifyPin(username: string, inputPin: string): Promise<boo
 }
 
 /**
- * Log out user (wipes session credentials and lock states)
+ * Log out user (wipes session credentials and lock states for the specified user or active user)
  */
-export function logoutUser() {
+export function logoutUser(username?: string) {
   if (typeof window === "undefined") return;
+  const user = username ? username.trim().toLowerCase() : getCurrentAuthUser()?.username?.trim().toLowerCase();
+  sessionStorage.removeItem(STORAGE_CURRENT_USER_KEY);
   localStorage.removeItem(STORAGE_CURRENT_USER_KEY);
-  sessionStorage.removeItem(STORAGE_SESSION_UNLOCKED_KEY);
-  setSessionUnlocked(false);
+  if (user) {
+    sessionStorage.removeItem(`wechat_session_unlocked_${user}`);
+  }
 }

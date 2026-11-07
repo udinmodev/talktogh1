@@ -15,18 +15,27 @@ export async function GET(request: Request) {
   }
 
   try {
-    const derived = deriveServerPairKey(userA, userB, epoch);
-    return NextResponse.json({
-      success: true,
-      userA: userA.toLowerCase(),
-      userB: userB.toLowerCase(),
-      sessionKeyHex: derived.sessionKeyHex,
-      sessionKeyBase64: derived.sessionKeyBase64,
-      safetyNumber: derived.safetyNumber,
-      algorithm: derived.algorithm,
-      epoch: derived.epoch,
-      timestamp: Date.now(),
-    });
+    const cleanA = userA.toLowerCase().split("@")[0];
+    const cleanB = userB.toLowerCase().split("@")[0];
+    const derived = deriveServerPairKey(cleanA, cleanB, epoch);
+    return NextResponse.json(
+      {
+        success: true,
+        userA: cleanA,
+        userB: cleanB,
+        sessionKeyHex: derived.sessionKeyHex,
+        sessionKeyBase64: derived.sessionKeyBase64,
+        safetyNumber: derived.safetyNumber,
+        algorithm: derived.algorithm,
+        epoch: derived.epoch,
+        timestamp: Date.now(),
+      },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=86400, stale-while-revalidate=604800",
+        },
+      }
+    );
   } catch (err: any) {
     return NextResponse.json(
       { success: false, error: `Key derivation failed: ${err.message}` },
@@ -38,7 +47,33 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { userA, userB, epoch = 1 } = body;
+    const { userA, userB, pairs, epoch = 1 } = body;
+
+    // Batch derivation support: e.g. { userA: "alice", pairs: ["bob", "charlie"] }
+    if (userA && Array.isArray(pairs)) {
+      const cleanA = String(userA).toLowerCase().split("@")[0];
+      const results: Record<string, { sessionKeyBase64: string; safetyNumber: string; algorithm: string }> = {};
+
+      for (const partner of pairs) {
+        if (!partner) continue;
+        const cleanB = String(partner).toLowerCase().split("@")[0];
+        try {
+          const derived = deriveServerPairKey(cleanA, cleanB, Number(epoch) || 1);
+          results[cleanB] = {
+            sessionKeyBase64: derived.sessionKeyBase64,
+            safetyNumber: derived.safetyNumber,
+            algorithm: derived.algorithm,
+          };
+        } catch {}
+      }
+
+      return NextResponse.json({
+        success: true,
+        userA: cleanA,
+        batch: results,
+        timestamp: Date.now(),
+      });
+    }
 
     if (!userA || !userB) {
       return NextResponse.json(
@@ -47,11 +82,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const derived = deriveServerPairKey(userA, userB, Number(epoch) || 1);
+    const cleanA = String(userA).toLowerCase().split("@")[0];
+    const cleanB = String(userB).toLowerCase().split("@")[0];
+    const derived = deriveServerPairKey(cleanA, cleanB, Number(epoch) || 1);
+
     return NextResponse.json({
       success: true,
-      userA: String(userA).toLowerCase(),
-      userB: String(userB).toLowerCase(),
+      userA: cleanA,
+      userB: cleanB,
       sessionKeyHex: derived.sessionKeyHex,
       sessionKeyBase64: derived.sessionKeyBase64,
       safetyNumber: derived.safetyNumber,

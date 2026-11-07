@@ -10,6 +10,7 @@ import {
   decryptMessageContent,
   getPairSessionKey,
   getPairSafetyNumber,
+  preloadPairSessionKeys,
 } from "@/lib/crypto";
 import { chatSync } from "@/lib/broadcast";
 import { secureSocket } from "@/lib/socket";
@@ -78,14 +79,16 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     }
   }, [routeContactId]);
 
-  // Load auth state on client mount
+  // Load auth state on client mount (isolated per browser tab via sessionStorage)
   useEffect(() => {
     const user = getCurrentAuthUser();
     setAuthUser(user);
     if (user) {
       setCurrentUserId(user.username);
       if (user.isSecuritySetupComplete) {
-        setIsAppLocked(!isSessionUnlocked());
+        setIsAppLocked(!isSessionUnlocked(user.username));
+      } else {
+        setIsAppLocked(false);
       }
     }
     setIsAuthLoaded(true);
@@ -94,20 +97,19 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
   const handleLoginSuccess = (user: AuthUser) => {
     setAuthUser(user);
     setCurrentUserId(user.username);
-    if (user.isSecuritySetupComplete) {
-      setIsAppLocked(true);
-    }
+    setSessionUnlocked(true, user.username);
+    setIsAppLocked(false);
   };
 
   const handleSecuritySetupComplete = (updatedUser: AuthUser) => {
     setAuthUser(updatedUser);
-    setSessionUnlocked(true);
+    setSessionUnlocked(true, updatedUser.username);
     setIsAppLocked(false);
     handleUpdateSettings({ appLockPinHash: updatedUser.pinHash });
   };
 
   const handleLogout = () => {
-    logoutUser();
+    logoutUser(cleanCurrentId);
     setAuthUser(null);
     setIsAppLocked(false);
     setSelectedContactId("");
@@ -212,8 +214,17 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     [cleanCurrentId]
   );
 
-  // App Lock State (Always locks on refresh/load for security)
-  const [isAppLocked, setIsAppLocked] = useState<boolean>(true);
+  // App Lock State: initialize based on whether active tab session is already unlocked
+  const [isAppLocked, setIsAppLocked] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const user = getCurrentAuthUser();
+      if (!user || !user.isSecuritySetupComplete) return false;
+      return !isSessionUnlocked(user.username);
+    } catch {
+      return false;
+    }
+  });
   const [isWindowBlurred, setIsWindowBlurred] = useState<boolean>(false);
 
   // Instant Network Offline Detection
@@ -283,7 +294,8 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
   const [messages, setMessages] = useState<Message[]>(() => {
     if (typeof window === "undefined") return [];
     try {
-      const rawUser = localStorage.getItem("wechat_current_auth_user_v2");
+      const sessionRaw = sessionStorage.getItem("wechat_current_auth_user_v2");
+      const rawUser = sessionRaw || localStorage.getItem("wechat_current_auth_user_v2");
       if (rawUser) {
         const u = JSON.parse(rawUser);
         const uid = String(u?.username || "").split("@")[0].toLowerCase();
@@ -303,7 +315,8 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
   const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     try {
-      const rawUser = localStorage.getItem("wechat_current_auth_user_v2");
+      const sessionRaw = sessionStorage.getItem("wechat_current_auth_user_v2");
+      const rawUser = sessionRaw || localStorage.getItem("wechat_current_auth_user_v2");
       if (rawUser) {
         const u = JSON.parse(rawUser);
         const uid = String(u?.username || "").split("@")[0].toLowerCase();
@@ -405,6 +418,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
             });
 
           setContacts(registeredUsers);
+          preloadPairSessionKeys(myCleanId, registeredUsers.map((u) => u.id));
           if (routeContactId && routeContactId !== myCleanId) {
             setSelectedContactId(routeContactId);
           }
@@ -459,6 +473,28 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
         return;
       }
       try {
+        const cleanCurrent = String(currentUser.id || "").split("@")[0].toLowerCase();
+
+        // 1. Batch Pre-Resolve Crypto Keys for distinct conversation partners in this batch
+        const distinctPartners: string[] = [];
+        for (const wire of wireList) {
+          if (decryptedCacheRef.current.has(wire.id)) continue;
+          const isChannel = wire.recipientId?.startsWith("public-");
+          const cleanSender = String(wire.senderId || "").split("@")[0].toLowerCase();
+          const cleanRecipient = String(wire.recipientId || "").split("@")[0].toLowerCase();
+          const partnerId = isChannel
+            ? cleanRecipient
+            : cleanSender === cleanCurrent
+            ? cleanRecipient
+            : cleanSender;
+          if (partnerId && partnerId !== "none" && partnerId !== cleanCurrent && !distinctPartners.includes(partnerId)) {
+            distinctPartners.push(partnerId);
+          }
+        }
+        if (distinctPartners.length > 0) {
+          await preloadPairSessionKeys(cleanCurrent, distinctPartners);
+        }
+
         const decryptedList: Message[] = [];
         for (const wire of wireList) {
           try {
@@ -1559,7 +1595,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     },
     updateSettings: handleUpdateSettings,
     lockApp: () => {
-      setSessionUnlocked(false);
+      setSessionUnlocked(false, cleanCurrentId);
       setIsAppLocked(true);
     },
     logout: handleLogout,
@@ -1590,7 +1626,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
   }
 
   // 4. Two-Factor Authentication Gateway
-  if (isAppLocked || !isSessionUnlocked()) {
+  if (isAppLocked || !isSessionUnlocked(cleanCurrentId)) {
     return (
       <AppLockScreen
         pinHash={authUser?.pinHash || settings.appLockPinHash || ""}
@@ -1599,7 +1635,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
         biometricEnabled={authUser?.biometricEnabled ?? true}
         biometricCredentialId={authUser?.biometricCredentialId}
         onUnlock={() => {
-          setSessionUnlocked(true);
+          setSessionUnlocked(true, cleanCurrentId);
           setIsAppLocked(false);
         }}
         onLogout={handleLogout}
@@ -1695,7 +1731,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
               }}
               onSwitchUser={handleLogout}
               onLockApp={() => {
-                setSessionUnlocked(false);
+                setSessionUnlocked(false, cleanCurrentId);
                 setIsAppLocked(true);
               }}
               onLogout={handleLogout}
