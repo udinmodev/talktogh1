@@ -279,13 +279,52 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState(false);
   const [isSecurityCenterOpen, setIsSecurityCenterOpen] = useState(false);
 
-  // Messages State
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Messages State with instant-refresh local session cache
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const rawUser = localStorage.getItem("wechat_current_auth_user_v2");
+      if (rawUser) {
+        const u = JSON.parse(rawUser);
+        const uid = String(u?.username || "").split("@")[0].toLowerCase();
+        if (uid) {
+          const cached = sessionStorage.getItem(`wechat_cache_msgs_${uid}`);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          }
+        }
+      }
+    } catch {}
+    return [];
+  });
   const [isPeerTyping, setIsPeerTyping] = useState<boolean>(false);
   const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(true);
-  const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(true);
+  const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const rawUser = localStorage.getItem("wechat_current_auth_user_v2");
+      if (rawUser) {
+        const u = JSON.parse(rawUser);
+        const uid = String(u?.username || "").split("@")[0].toLowerCase();
+        if (uid) {
+          const cached = sessionStorage.getItem(`wechat_cache_msgs_${uid}`);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) return false;
+          }
+        }
+      }
+    } catch {}
+    return true;
+  });
   const realtimeChannelRef = useRef<any>(null);
   const peerTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // In-memory decrypted message cache to eliminate duplicate WebCrypto decryption
+  const decryptedCacheRef = useRef<Map<string, Message>>(new Map());
+  const [hasMoreMap, setHasMoreMap] = useState<Record<string, boolean>>({});
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
 
   const currentUser: User = {
     id: cleanCurrentId,
@@ -412,63 +451,114 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     };
   }, [cleanCurrentId, activeChatId]);
 
-  // Process incoming wire messages from WebSocket synchronization
-  const processIncomingWireBatch = useCallback(async (wireList: any[]) => {
-    if (!currentUser.id || currentUser.id === "user" || !wireList) {
-      setIsLoadingMessages(false);
-      return;
-    }
-    try {
-      const decryptedList: Message[] = [];
-      for (const wire of wireList) {
-        try {
-          const isChannel = wire.recipientId?.startsWith("public-");
-          const cleanSender = String(wire.senderId || "").split("@")[0].toLowerCase();
-          const cleanRecipient = String(wire.recipientId || "").split("@")[0].toLowerCase();
-          const cleanCurrent = String(currentUser.id || "").split("@")[0].toLowerCase();
+  // Process incoming wire messages from WebSocket or REST API with instant memory cache
+  const processIncomingWireBatch = useCallback(
+    async (wireList: any[], isPrepend: boolean = false) => {
+      if (!currentUser.id || currentUser.id === "user" || !wireList) {
+        setIsLoadingMessages(false);
+        return;
+      }
+      try {
+        const decryptedList: Message[] = [];
+        for (const wire of wireList) {
+          try {
+            // 1. Instant Cache Hit: Return cached decrypted representation
+            if (decryptedCacheRef.current.has(wire.id)) {
+              const cached = decryptedCacheRef.current.get(wire.id)!;
+              decryptedList.push({
+                ...cached,
+                status: wire.status || cached.status,
+                reactions: wire.reactions || cached.reactions,
+                isPinned: wire.isPinned !== undefined ? wire.isPinned : cached.isPinned,
+                isBurned: wire.isBurned !== undefined ? wire.isBurned : cached.isBurned,
+              });
+              continue;
+            }
 
-          const partnerId = isChannel
-            ? cleanRecipient
-            : cleanSender === cleanCurrent
-            ? cleanRecipient
-            : cleanSender;
+            const isChannel = wire.recipientId?.startsWith("public-");
+            const cleanSender = String(wire.senderId || "").split("@")[0].toLowerCase();
+            const cleanRecipient = String(wire.recipientId || "").split("@")[0].toLowerCase();
+            const cleanCurrent = String(currentUser.id || "").split("@")[0].toLowerCase();
 
-          if (!partnerId || partnerId === "none" || partnerId === cleanCurrent) continue;
+            const partnerId = isChannel
+              ? cleanRecipient
+              : cleanSender === cleanCurrent
+              ? cleanRecipient
+              : cleanSender;
 
-          let ep = wire.encryptedPayload;
-          if (typeof ep === "string") {
-            try {
-              ep = JSON.parse(ep);
-            } catch {}
+            if (!partnerId || partnerId === "none" || partnerId === cleanCurrent) continue;
+
+            let ep = wire.encryptedPayload;
+            if (typeof ep === "string") {
+              try {
+                ep = JSON.parse(ep);
+              } catch {}
+            }
+            if (!ep || !ep.iv || !ep.ciphertext) continue;
+
+            const chatKey = await getPairSessionKey(cleanCurrent, partnerId);
+            const decrypted = await decryptMessageContent(ep, chatKey);
+            const decryptedMsg: Message = {
+              ...wire,
+              senderId: cleanSender,
+              recipientId: cleanRecipient,
+              encryptedPayload: ep,
+              text: decrypted.text,
+              linkMetadata: decrypted.linkMetadata,
+              mediaType: decrypted.mediaType || wire.mediaType,
+              mediaUrl: decrypted.mediaUrl || wire.mediaUrl,
+              reactions: wire.reactions || {},
+            };
+
+            decryptedCacheRef.current.set(wire.id, decryptedMsg);
+            decryptedList.push(decryptedMsg);
+          } catch {
+            // Encrypted for another contact
           }
-          if (!ep || !ep.iv || !ep.ciphertext) continue;
+        }
 
-          const chatKey = await getPairSessionKey(cleanCurrent, partnerId);
-          const decrypted = await decryptMessageContent(ep, chatKey);
-          decryptedList.push({
-            ...wire,
-            senderId: cleanSender,
-            recipientId: cleanRecipient,
-            encryptedPayload: ep,
-            text: decrypted.text,
-            linkMetadata: decrypted.linkMetadata,
-            mediaType: decrypted.mediaType || wire.mediaType,
-            mediaUrl: decrypted.mediaUrl || wire.mediaUrl,
-            reactions: wire.reactions || {},
-          });
-        } catch {
-          // Encrypted for another contact
+        setMessages((prev) => {
+          const map = new Map<string, Message>();
+          if (isPrepend) {
+            for (const m of decryptedList) map.set(m.id, m);
+            for (const m of prev) map.set(m.id, m);
+          } else {
+            for (const m of prev) map.set(m.id, m);
+            for (const m of decryptedList) map.set(m.id, m);
+          }
+          const merged = Array.from(map.values()).sort((a, b) => a.timestamp - b.timestamp);
+          try {
+            if (cleanCurrentId && cleanCurrentId !== "user" && merged.length > 0) {
+              sessionStorage.setItem(`wechat_cache_msgs_${cleanCurrentId}`, JSON.stringify(merged));
+            }
+          } catch {}
+          return merged;
+        });
+      } catch (err) {
+        console.warn("Wire batch decrypt error:", err);
+      } finally {
+        setIsLoadingMessages(false);
+      }
+    },
+    [currentUser.id, cleanCurrentId]
+  );
+
+  // Keep session cache in sync and prime memory cache
+  useEffect(() => {
+    if (typeof window === "undefined" || !cleanCurrentId || cleanCurrentId === "user") return;
+    try {
+      if (messages.length > 0) {
+        sessionStorage.setItem(`wechat_cache_msgs_${cleanCurrentId}`, JSON.stringify(messages));
+        for (const m of messages) {
+          if (m.id && !decryptedCacheRef.current.has(m.id)) {
+            decryptedCacheRef.current.set(m.id, m);
+          }
         }
       }
-      setMessages(decryptedList);
-    } catch (err) {
-      console.warn("WebSocket wire batch decrypt error:", err);
-    } finally {
-      setIsLoadingMessages(false);
-    }
-  }, [currentUser.id]);
+    } catch {}
+  }, [messages, cleanCurrentId]);
 
-  // Load initial messages via secure REST endpoint and WebSocket sync
+  // Load initial messages via secure REST endpoint and WebSocket sync (fetches latest batch)
   const loadInitialMessages = useCallback(
     async (myId: string) => {
       if (!myId || myId === "user") {
@@ -489,8 +579,8 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
         secureSocket.registerUser(cleanId);
         secureSocket.requestMessageSync(cleanId);
 
-        // 2. Fetch persisted messages from REST route
-        const res = await fetch(`/api/messages?userId=${encodeURIComponent(cleanId)}`, {
+        // 2. Fetch latest 40 messages from optimized REST route
+        const res = await fetch(`/api/messages?userId=${encodeURIComponent(cleanId)}&limit=40`, {
           headers: getInternalApiHeaders(),
         });
 
@@ -498,6 +588,9 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
           const data = await res.json();
           if (data && Array.isArray(data.messages)) {
             await processIncomingWireBatch(data.messages);
+            if (data.hasMore !== undefined) {
+              setHasMoreMap((prev) => ({ ...prev, [cleanId]: Boolean(data.hasMore) }));
+            }
           }
         }
       } catch (err) {
@@ -510,13 +603,68 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     [processIncomingWireBatch]
   );
 
+  // Optimized pagination: Fetch older messages on scroll
+  const loadMoreMessages = useCallback(async () => {
+    if (
+      isLoadingMore ||
+      !activeChatId ||
+      activeChatId === "none" ||
+      !cleanCurrentId ||
+      cleanCurrentId === "user"
+    ) {
+      return;
+    }
+
+    if (hasMoreMap[activeChatId] === false) return;
+
+    const chatMsgs = messages.filter((m) => {
+      const s = String(m.senderId || "").split("@")[0].toLowerCase();
+      const r = String(m.recipientId || "").split("@")[0].toLowerCase();
+      return (
+        (s === activeChatId && r === cleanCurrentId) ||
+        (s === cleanCurrentId && r === activeChatId) ||
+        (activeChatId.startsWith("public-") && r === activeChatId)
+      );
+    });
+
+    if (chatMsgs.length === 0) return;
+
+    const oldestTimestamp = chatMsgs[0].timestamp;
+    setIsLoadingMore(true);
+
+    try {
+      const res = await fetch(
+        `/api/messages?userId=${encodeURIComponent(cleanCurrentId)}&contactId=${encodeURIComponent(
+          activeChatId
+        )}&before=${oldestTimestamp}&limit=30`,
+        { headers: getInternalApiHeaders() }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.messages) && data.messages.length > 0) {
+          await processIncomingWireBatch(data.messages, true);
+        }
+        const more = Boolean(data.hasMore && data.messages && data.messages.length > 0);
+        setHasMoreMap((prev) => ({ ...prev, [activeChatId]: more }));
+      } else {
+        setHasMoreMap((prev) => ({ ...prev, [activeChatId]: false }));
+      }
+    } catch (err) {
+      console.warn("Load more messages error:", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, activeChatId, cleanCurrentId, messages, hasMoreMap, processIncomingWireBatch]);
+
   useEffect(() => {
+    if (!isAuthLoaded) return;
     if (currentUser.id && currentUser.id !== "user") {
       loadInitialMessages(currentUser.id);
     } else {
       setIsLoadingMessages(false);
     }
-  }, [currentUser.id, loadInitialMessages]);
+  }, [currentUser.id, isAuthLoaded, loadInitialMessages]);
 
   // Supabase Realtime Listener
   useEffect(() => {
@@ -1370,6 +1518,9 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     sessionKey,
     isLoadingContacts,
     isLoadingMessages,
+    hasMoreMessages: activeChatId ? hasMoreMap[activeChatId] !== false : false,
+    isLoadingMoreMessages: isLoadingMore,
+    loadMoreMessages,
     isPeerTyping,
     isOnline,
     networkError,
@@ -1521,7 +1672,7 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
               messages={messages}
               settings={settings}
               selectedChatId={selectedContactId || routeContactId || ""}
-              isLoading={isLoadingContacts}
+              isLoading={isLoadingContacts || (isLoadingMessages && messages.length === 0)}
               isOnline={isOnline}
               onSelectChat={(id) => {
                 if (id) {

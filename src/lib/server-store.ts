@@ -70,10 +70,20 @@ function purgeExpired(messages: WireMessage[]): { active: WireMessage[]; purgedC
   return { active, purgedCount };
 }
 
+export interface FetchWireMessagesOptions {
+  since?: number;
+  before?: number;
+  limit?: number;
+  userId?: string;
+  contactId?: string;
+}
+
 /**
- * Retrieve active messages (with automatic expiration purge)
+ * Retrieve active messages (with automatic expiration purge and pagination)
  */
-export function getActiveWireMessages(since: number = 0): WireMessage[] {
+export function getActiveWireMessages(
+  options?: number | FetchWireMessagesOptions
+): WireMessage[] {
   const store = getStore();
   const { active, purgedCount } = purgeExpired(store);
 
@@ -82,7 +92,44 @@ export function getActiveWireMessages(since: number = 0): WireMessage[] {
     flushToDisk(active);
   }
 
-  return since > 0 ? active.filter((m) => m.timestamp > since) : active;
+  const since = typeof options === "number" ? options : options?.since || 0;
+  const before = typeof options === "object" ? options?.before || 0 : 0;
+  const limit = typeof options === "object" ? options?.limit || 0 : 0;
+  const userId = typeof options === "object" ? options?.userId?.split("@")[0].toLowerCase() : "";
+  const contactId = typeof options === "object" ? options?.contactId?.split("@")[0].toLowerCase() : "";
+
+  let result = active;
+
+  if (since > 0) {
+    result = result.filter((m) => m.timestamp > since);
+  }
+
+  if (before > 0) {
+    result = result.filter((m) => m.timestamp < before);
+  }
+
+  if (userId) {
+    result = result.filter((m) => {
+      const s = String(m.senderId || "").split("@")[0].toLowerCase();
+      const r = String(m.recipientId || "").split("@")[0].toLowerCase();
+      if (contactId) {
+        return (
+          (s === userId && r === contactId) ||
+          (s === contactId && r === userId) ||
+          (contactId.startsWith("public-") && r === contactId)
+        );
+      }
+      return s === userId || r === userId || r.startsWith("public-");
+    });
+  }
+
+  if (limit > 0) {
+    // Sort descending to grab newest first up to limit, then reverse back to chronological ASC
+    result = [...result].sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
+    result.reverse();
+  }
+
+  return result;
 }
 
 /**

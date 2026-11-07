@@ -14,6 +14,9 @@ export interface ChatContextType {
   sessionKey: CryptoKey | null;
   isLoadingContacts: boolean;
   isLoadingMessages: boolean;
+  hasMoreMessages?: boolean;
+  isLoadingMoreMessages?: boolean;
+  loadMoreMessages?: () => Promise<void>;
   isPeerTyping: boolean;
   isOnline: boolean;
   networkError: string | null;

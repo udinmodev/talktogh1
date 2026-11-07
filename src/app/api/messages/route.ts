@@ -39,8 +39,8 @@ function sanitizeToWire(raw: Record<string, unknown>): WireMessage | null {
   const ciphertext = String(ep.ciphertext || "").trim();
   const iv = String(ep.iv || "").trim();
 
-  // 1. Strict ciphertext & IV validation: Must be non-empty valid Base64 within strict size limits
-  if (!ciphertext || ciphertext.length > 500000 || !/^[A-Za-z0-9+/=]+$/.test(ciphertext)) {
+  // 1. Strict ciphertext & IV validation: Must be non-empty valid Base64 within strict size limits (supports up to 5MB for photos & animated GIFs)
+  if (!ciphertext || ciphertext.length > 5000000 || !/^[A-Za-z0-9+/=]+$/.test(ciphertext)) {
     return null;
   }
   if (!iv || iv.length > 32 || !/^[A-Za-z0-9+/=]+$/.test(iv)) {
@@ -87,12 +87,12 @@ function sanitizeToWire(raw: Record<string, unknown>): WireMessage | null {
     }
   }
 
-  // 5. Safe mediaUrl check
+  // 5. Safe mediaUrl check (supports up to 5MB for photos & animated GIFs)
   let safeMediaUrl: string | undefined = undefined;
   if (typeof raw.mediaUrl === "string") {
     const trimmed = raw.mediaUrl.trim();
     if (trimmed.startsWith("https://") || trimmed.startsWith("data:image/") || trimmed.startsWith("data:audio/")) {
-      safeMediaUrl = trimmed.slice(0, 500000);
+      safeMediaUrl = trimmed.slice(0, 5000000);
     }
   }
 
@@ -132,7 +132,11 @@ function sanitizeToWire(raw: Record<string, unknown>): WireMessage | null {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const since = Number(searchParams.get("since") || 0);
+  const before = Number(searchParams.get("before") || 0);
+  const limitParam = searchParams.get("limit");
+  const limit = limitParam ? Math.min(100, Math.max(1, Number(limitParam))) : 0;
   const userId = searchParams.get("userId")?.trim().toLowerCase() || "";
+  const contactId = searchParams.get("contactId")?.trim().toLowerCase() || "";
   const showStats = searchParams.get("stats") === "true";
 
   if (showStats) {
@@ -143,51 +147,61 @@ export async function GET(request: Request) {
     });
   }
 
+  // Request limit + 1 so we can tell if more older records exist
+  const queryLimit = limit > 0 ? limit + 1 : 0;
+  const options = {
+    since,
+    before,
+    limit: queryLimit,
+    userId,
+    contactId: contactId && contactId !== "none" ? contactId : undefined,
+  };
+
   // 1. If Supabase is configured, attempt fetch from Supabase
   if (isSupabaseConfigured) {
-    const supabaseMsgs = await fetchSupabaseWireMessages(since);
+    const supabaseMsgs = await fetchSupabaseWireMessages(options);
     if (supabaseMsgs !== null) {
       // Sync to local memory cache so offline/fallback is always primed
       saveWireMessages(supabaseMsgs);
 
-      // Strict user boundary isolation: Only return messages that belong to the querying user
-      const cleanUserId = userId.split("@")[0].toLowerCase();
-      const filtered = cleanUserId
-        ? supabaseMsgs.filter((m) => {
-            const s = String(m.senderId || "").split("@")[0].toLowerCase();
-            const r = String(m.recipientId || "").split("@")[0].toLowerCase();
-            return s === cleanUserId || r === cleanUserId || m.recipientId?.startsWith("public-");
-          })
-        : supabaseMsgs;
+      let hasMore = false;
+      let finalMsgs = supabaseMsgs;
+      if (limit > 0 && finalMsgs.length > limit) {
+        hasMore = true;
+        // Keep the newest `limit` messages in the ASC window
+        finalMsgs = finalMsgs.slice(finalMsgs.length - limit);
+      }
 
       return NextResponse.json({
         success: true,
         zeroKnowledge: true,
         storage: "supabase-database",
-        count: filtered.length,
-        messages: filtered,
+        count: finalMsgs.length,
+        hasMore,
+        nextCursor: finalMsgs.length > 0 ? finalMsgs[0].timestamp : null,
+        messages: finalMsgs,
       });
     }
   }
 
   // 2. Fallback to zero-knowledge local persistent disk store
-  const activeMessages = getActiveWireMessages(since);
-  const cleanUserId = userId.split("@")[0].toLowerCase();
-  const filteredActive = cleanUserId
-    ? activeMessages.filter((m) => {
-        const s = String(m.senderId || "").split("@")[0].toLowerCase();
-        const r = String(m.recipientId || "").split("@")[0].toLowerCase();
-        return s === cleanUserId || r === cleanUserId || m.recipientId?.startsWith("public-");
-      })
-    : activeMessages;
+  const diskMsgs = getActiveWireMessages(options);
+  let hasMore = false;
+  let finalDiskMsgs = diskMsgs;
+  if (limit > 0 && finalDiskMsgs.length > limit) {
+    hasMore = true;
+    finalDiskMsgs = finalDiskMsgs.slice(finalDiskMsgs.length - limit);
+  }
 
   return NextResponse.json({
     success: true,
     zeroKnowledge: true,
     storage: "persistent-disk",
     supabaseConfigured: isSupabaseConfigured,
-    count: filteredActive.length,
-    messages: filteredActive,
+    count: finalDiskMsgs.length,
+    hasMore,
+    nextCursor: finalDiskMsgs.length > 0 ? finalDiskMsgs[0].timestamp : null,
+    messages: finalDiskMsgs,
   });
 }
 

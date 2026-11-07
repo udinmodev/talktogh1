@@ -20,11 +20,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // Strict 3MB media size limit (3MB binary in base64 is ~4.2MB)
-    const MAX_BASE64_BYTES = 4.5 * 1024 * 1024;
+    // Media size limit (supports up to 4MB media payload)
+    const MAX_BASE64_BYTES = 5.5 * 1024 * 1024;
     if (typeof encryptedPayloadBase64 === "string" && encryptedPayloadBase64.length > MAX_BASE64_BYTES) {
       return NextResponse.json(
-        { success: false, error: "Media size exceeds strict 3MB limit." },
+        { success: false, error: "Media size exceeds 4MB limit." },
         { status: 413 }
       );
     }

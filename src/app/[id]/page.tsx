@@ -22,6 +22,9 @@ export default function ChatPage() {
     settings,
     sessionKey,
     isLoadingMessages,
+    hasMoreMessages,
+    isLoadingMoreMessages,
+    loadMoreMessages,
     isPeerTyping,
     isOnline,
     sendMessage,
@@ -92,6 +95,9 @@ export default function ChatPage() {
         settings={settings}
         sessionKey={sessionKey}
         isLoading={isLoadingMessages}
+        hasMoreMessages={hasMoreMessages}
+        isLoadingMoreMessages={isLoadingMoreMessages}
+        onLoadMoreMessages={loadMoreMessages}
         isOnline={isOnline}
         onSendMessage={sendMessage}
         onOpenSafetyNumbers={openSafetyNumbers}

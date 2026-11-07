@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { User, Message, SecuritySettings } from "@/types/chat";
 import {
   ShieldCheck,
@@ -61,6 +61,9 @@ interface ChatAreaProps {
   onTyping: (isTyping: boolean) => void;
   isPeerTyping: boolean;
   isLoading?: boolean;
+  hasMoreMessages?: boolean;
+  isLoadingMoreMessages?: boolean;
+  onLoadMoreMessages?: () => void;
   isOnline?: boolean;
   onBurnMessage?: (messageId: string) => void;
   onDeleteMessage?: (messageId: string) => void;
@@ -75,6 +78,9 @@ export function ChatArea({
   settings,
   sessionKey,
   isLoading = false,
+  hasMoreMessages = false,
+  isLoadingMoreMessages = false,
+  onLoadMoreMessages,
   isOnline = true,
   onSendMessage,
   onOpenSafetyNumbers,
@@ -255,6 +261,11 @@ export function ChatArea({
     return () => clearInterval(interval);
   }, [messages]);
 
+  // Scroll metrics for seamless older messages prepending without screen jumping
+  const prevScrollHeightRef = useRef<number>(0);
+  const prevScrollTopRef = useRef<number>(0);
+  const isPrependingOlderRef = useRef<boolean>(false);
+
   // Scroll messages container without forcing entire page/window to scroll
   const scrollToBottom = (smooth = true) => {
     if (messagesContainerRef.current) {
@@ -265,13 +276,49 @@ export function ChatArea({
     }
   };
 
+  // Restore scroll position after older messages are prepended to the top
+  useLayoutEffect(() => {
+    if (isPrependingOlderRef.current && messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      const heightDiff = container.scrollHeight - prevScrollHeightRef.current;
+      container.scrollTop = prevScrollTopRef.current + heightDiff;
+      isPrependingOlderRef.current = false;
+    }
+  }, [messages]);
+
+  // Handle scrolling near the top to fetch older messages
+  const handleScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    if (
+      container.scrollTop < 80 &&
+      hasMoreMessages &&
+      !isLoadingMoreMessages &&
+      onLoadMoreMessages
+    ) {
+      prevScrollHeightRef.current = container.scrollHeight;
+      prevScrollTopRef.current = container.scrollTop;
+      isPrependingOlderRef.current = true;
+      onLoadMoreMessages();
+    }
+  };
+
+  // Initial scroll to bottom on contact change
   useEffect(() => {
     scrollToBottom(false);
-  }, []);
+  }, [contactUser?.id]);
 
-  // Auto scroll to bottom when new messages arrive or peer typing state updates
+  // Auto scroll to bottom when new messages arrive or peer typing state updates (unless user is reading history or prepending)
   useEffect(() => {
-    scrollToBottom(true);
+    if (isPrependingOlderRef.current) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const isNearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 250;
+    if (isNearBottom || isPeerTyping) {
+      scrollToBottom(true);
+    }
   }, [messages, isPeerTyping]);
 
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -330,6 +377,27 @@ export function ChatArea({
     }, 1500);
   };
 
+  // Detect if a string is a native Google Keyboard / Tenor / Giphy GIF URL
+  const isGifUrl = (text: string): boolean => {
+    if (!text || typeof text !== "string") return false;
+    const trimmed = text.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return false;
+    if (/\s/.test(trimmed)) return false;
+
+    // Direct .gif or animated .webp
+    if (/\.(gif|webp)(\?.*)?$/i.test(trimmed)) return true;
+
+    // Tenor (Google Keyboard Gboard native GIF provider)
+    if (/(media|c|t)\.tenor\.com\//i.test(trimmed)) return true;
+    if (/tenor\.com\/view\//i.test(trimmed)) return true;
+
+    // Giphy (Native mobile keyboards)
+    if (/(media[0-9]*|i)\.giphy\.com\//i.test(trimmed)) return true;
+    if (/giphy\.com\/gifs\//i.test(trimmed)) return true;
+
+    return false;
+  };
+
   const handleSend = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!inputText.trim()) return;
@@ -340,15 +408,28 @@ export function ChatArea({
       return;
     }
 
+    const trimmed = inputText.trim();
+
     if (editingMessage) {
-      onEditMessage?.(editingMessage.id, inputText.trim());
+      onEditMessage?.(editingMessage.id, trimmed);
       setEditingMessage(null);
       setInputText("");
       onTyping(false);
       return;
     }
 
-    onSendMessage(inputText.trim(), undefined, undefined, isViewOnceMode, customTimer);
+    // Google Keyboard GIF support: detect Gboard Tenor/Giphy GIF URLs and send directly without server upload
+    if (isGifUrl(trimmed)) {
+      onSendMessage("GIF", "image", trimmed, isViewOnceMode, customTimer);
+      setInputText("");
+      setIsViewOnceMode(false);
+      setCustomTimer(null);
+      setShowEmojiPicker(false);
+      onTyping(false);
+      return;
+    }
+
+    onSendMessage(trimmed, undefined, undefined, isViewOnceMode, customTimer);
     setInputText("");
     setIsViewOnceMode(false);
     setCustomTimer(null);
@@ -356,93 +437,161 @@ export function ChatArea({
     onTyping(false);
   };
 
-  // Strict 3MB media limit (enforced both client-side and server-side)
-  const MAX_IMAGE_SIZE_BYTES = 3 * 1024 * 1024; // 3MB
+  // Helper to process, optimize photos, and preserve native animated GIFs
+  const processImageOrGifFile = async (
+    file: File
+  ): Promise<{ dataUrl: string; name: string }> => {
+    const isGif = file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif");
 
-  // Instant Optimistic Image Display + Asynchronous Background Encryption & ImageKit Upload
-  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) {
-      e.target.value = "";
+    // 1. For Native Animated GIFs: DO NOT compress via canvas (which flattens frames to a single static image)
+    if (isGif) {
+      if (file.size > 4 * 1024 * 1024) {
+        throw new Error(
+          `GIF size (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds 4MB limit. Please choose a smaller GIF.`
+        );
+      }
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () =>
+          resolve({
+            dataUrl: reader.result as string,
+            name: file.name || "animation.gif",
+          });
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // 2. For Photos (JPEG, PNG, WebP):
+    // Small photos (< 350KB) can be read directly
+    if (file.size <= 350 * 1024) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () =>
+          resolve({
+            dataUrl: reader.result as string,
+            name: file.name,
+          });
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // 3. For large photos (including 5MB-15MB camera photos from smartphones):
+    // Automatically scale down to 1280px HD with smooth JPEG compression (~150KB-250KB)
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const MAX_DIM = 1280;
+          let { width, height } = img;
+          if (width > MAX_DIM || height > MAX_DIM) {
+            if (width > height) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            } else {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve({ dataUrl: reader.result as string, name: file.name });
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.82);
+          const cleanName = (file.name || "photo").replace(/\.[^/.]+$/, "") + ".jpg";
+          resolve({ dataUrl: compressedDataUrl, name: cleanName });
+        };
+        img.onerror = () => {
+          resolve({ dataUrl: reader.result as string, name: file.name });
+        };
+        img.src = reader.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Unified image/GIF sender (used by file picker, native mobile keyboard GIF paste, and drag/drop)
+  const sendImageOrGifFile = async (file: File) => {
+    if (!file) return;
+
+    if (!file.type.startsWith("image/") && !file.name.toLowerCase().endsWith(".gif")) {
+      setInlineError("Please select a valid image or GIF file.");
       return;
     }
 
-    if (!file.type.startsWith("image/")) {
-      setInlineError("Please select a valid image file (JPEG, PNG, WebP, GIF).");
-      e.target.value = "";
-      return;
-    }
-
-    // Strict 3MB size limit
-    if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-      setInlineError(`Image size exceeds 3MB limit (${sizeMb}MB). Please choose a file up to 3MB.`);
-      e.target.value = "";
-      return;
-    }
-
-    setShowAttachMenu(false);
-
-    // Instant offline check for media upload
+    // Instant offline check
     if (!isOnline || (typeof navigator !== "undefined" && !navigator.onLine)) {
       setInlineError("Internet connection cut down! Cannot upload photo while offline.");
-      e.target.value = "";
       return;
     }
 
+    setIsUploadingImage(true);
+    setInlineError(null);
+    setShowAttachMenu(false);
+
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const localDataUrl = reader.result as string;
-        const currentViewOnce = isViewOnceMode;
-        const currentTimerVal = customTimer;
+      const { dataUrl, name } = await processImageOrGifFile(file);
+      const currentViewOnce = isViewOnceMode;
+      const currentTimerVal = customTimer;
 
-        // Reset composer inputs immediately for snappy UX
-        setIsViewOnceMode(false);
-        setCustomTimer(null);
+      setIsViewOnceMode(false);
+      setCustomTimer(null);
 
-        // 1. INSTANT DISPATCH: Display photo in the sender's chat UI immediately (zero latency)
-        onSendMessage(file.name, "image", localDataUrl, currentViewOnce, currentTimerVal);
+      // Instant Dispatch: Send encrypted image/GIF directly
+      onSendMessage(name, "image", dataUrl, currentViewOnce, currentTimerVal);
+    } catch (err: any) {
+      console.warn("Image/GIF upload error:", err);
+      setInlineError(err.message || "Failed to upload image or GIF.");
+    } finally {
+      setIsUploadingImage(false);
+      if (imageInputRef.current) {
+        imageInputRef.current.value = "";
+      }
+    }
+  };
 
-        // 2. BACKGROUND WORKER: Encrypt binary with AES-256-GCM and upload blob to ImageKit asynchronously
-        if (sessionKey) {
-          (async () => {
-            try {
-              const iv = window.crypto.getRandomValues(new Uint8Array(12));
-              const enc = new TextEncoder();
-              const encryptedBuf = await window.crypto.subtle.encrypt(
-                { name: "AES-GCM", iv },
-                sessionKey,
-                enc.encode(localDataUrl)
-              );
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await sendImageOrGifFile(file);
+    }
+    e.target.value = "";
+  };
 
-              // Safe chunked Base64 encoding - avoids call stack size errors
-              const ivBase64 = uint8ArrayToBase64(iv);
-              const cipherBase64 = bufferToBase64(encryptedBuf);
-              const encryptedBlobPayload = JSON.stringify({ iv: ivBase64, ciphertext: cipherBase64 });
-              const payloadBase64 = uint8ArrayToBase64(new TextEncoder().encode(encryptedBlobPayload));
-
-              // Background upload to ImageKit
-              await fetch("/api/upload", {
-                method: "POST",
-                headers: getInternalApiHeaders(),
-                body: JSON.stringify({
-                  encryptedPayloadBase64: payloadBase64,
-                  filename: file.name,
-                }),
-              });
-            } catch (bgErr) {
-              console.warn("Background ImageKit encryption notice:", bgErr);
-            }
-          })();
+  // Mobile Keyboard Native GIF & Clipboard Paste Handler (Google Keyboard Gboard, iOS keyboard, clipboard)
+  const handleInputPaste = async (e: React.ClipboardEvent) => {
+    // 1. Check for native Gboard/mobile image/GIF file items
+    const items = e.clipboardData?.items;
+    if (items && items.length > 0) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            await sendImageOrGifFile(file);
+            return;
+          }
         }
-      };
-      reader.readAsDataURL(file);
-    } catch (readErr) {
-      console.warn("Image file read notice:", readErr);
+      }
     }
 
-    e.target.value = "";
+    // 2. Check for Gboard Tenor/Giphy GIF URL or direct animated GIF link insertion
+    const textData = e.clipboardData?.getData("text/plain")?.trim();
+    if (textData && isGifUrl(textData)) {
+      e.preventDefault();
+      onSendMessage("GIF", "image", textData, isViewOnceMode, customTimer);
+      setInputText("");
+      return;
+    }
   };
 
   const emojis = ["😀", "😂", "❤️", "🔥", "👍", "🙏", "🔒", "🛡️", "🔑", "🚀", "✨", "⚡"];
@@ -600,8 +749,19 @@ export function ChatArea({
       {/* Message Canvas Area */}
       <div
         ref={messagesContainerRef}
+        onScroll={handleScroll}
         className="flex-1 min-h-0 overflow-y-auto px-4 md:px-8 lg:px-16 py-6 space-y-2 bg-white relative overscroll-contain"
       >
+        {/* Loading Older Messages Spinner */}
+        {isLoadingMoreMessages && (
+          <div className="flex justify-center py-2 animate-in fade-in duration-150">
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#f0f2f5] text-[#65676b] text-xs font-medium shadow-xs">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0084ff]" />
+              <span>Loading older messages...</span>
+            </div>
+          </div>
+        )}
+
         {/* Subtle E2EE Notice Pill */}
         <div className="flex justify-center my-3">
           <div className="max-w-sm bg-[#f0f2f5] text-[#65676b] text-xs px-4 py-1.5 rounded-full text-center flex items-center gap-1.5 select-none font-medium">
@@ -618,7 +778,7 @@ export function ChatArea({
         </div>
 
         {/* Skeleton Message Flow while loading */}
-        {isLoading ? (
+        {isLoading && messages.length === 0 ? (
           <div className="space-y-4 py-4">
             {/* Incoming Bubble Skeleton */}
             <div className="flex items-end gap-2 max-w-[70%] animate-pulse">
@@ -782,54 +942,57 @@ export function ChatArea({
                 }`}
               >
                 {/* Media Preview - Openable Full Lightbox */}
-                {msg.mediaType === "image" && !msg.viewOnce && (
+                {(msg.mediaType === "image" || (!msg.mediaUrl && isGifUrl(msg.text))) && !msg.viewOnce && (
                   <div className="mb-2">
-                    {decryptedImages[msg.id] || msg.mediaUrl ? (
-                      <div
-                        onClick={() => {
-                          const src = decryptedImages[msg.id] || msg.mediaUrl;
-                          if (src) {
-                            setPreviewImage({
-                              url: src,
-                              name: msg.text || "Photo Attachment",
-                            });
-                          }
-                        }}
-                        className="group/img relative rounded-2xl overflow-hidden cursor-pointer shadow-xs border border-black/5 hover:opacity-95 transition-all"
-                        title="Click to open photo"
-                      >
-                        <img
-                          src={decryptedImages[msg.id] || msg.mediaUrl}
-                          alt={msg.text || "Photo attachment"}
-                          className="w-full max-h-72 object-cover rounded-2xl transition-transform duration-200 group-hover/img:scale-[1.02]"
-                        />
-                        {/* Hover Overlay Hint */}
-                        <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/25 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
-                          <span className="bg-black/75 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-xs font-medium shadow-lg">
-                            <Maximize2 className="h-3.5 w-3.5" />
-                            <span>Open</span>
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        className={`p-2.5 rounded-xl flex items-center gap-3 ${
-                          isMe
-                            ? theme.bubbleCard
-                            : "bg-white/80 text-[#050505] border border-[#e4e6eb]"
-                        }`}
-                      >
-                        <div className="w-9 h-9 rounded-lg bg-[#0084ff]/10 text-[#0084ff] flex items-center justify-center shrink-0">
-                          <ImageIcon className="h-5 w-5" />
-                        </div>
-                        <div className="text-xs">
-                          <div className="font-medium">{msg.text || "Photo Attachment"}</div>
-                          <div className={`text-[11px] ${isMe ? theme.subtle : "text-[#65676b]"}`}>
-                            Decrypting Encrypted Photo...
+                    {(() => {
+                      const src = decryptedImages[msg.id] || msg.mediaUrl || (isGifUrl(msg.text) ? msg.text : "");
+                      if (src) {
+                        return (
+                          <div
+                            onClick={() => {
+                              setPreviewImage({
+                                url: src,
+                                name: msg.text === "GIF" ? "Animated GIF" : (msg.text || "Photo Attachment"),
+                              });
+                            }}
+                            className="group/img relative rounded-2xl overflow-hidden cursor-pointer shadow-xs border border-black/5 hover:opacity-95 transition-all bg-black/5"
+                            title="Click to view full photo / GIF"
+                          >
+                            <img
+                              src={src}
+                              alt={msg.text || "Photo attachment"}
+                              className="w-full max-h-72 object-contain rounded-2xl transition-transform duration-200 group-hover/img:scale-[1.01]"
+                            />
+                            {/* Hover Overlay Hint */}
+                            <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/25 transition-colors flex items-center justify-center opacity-0 group-hover/img:opacity-100">
+                              <span className="bg-black/75 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-xs font-medium shadow-lg">
+                                <Maximize2 className="h-3.5 w-3.5" />
+                                <span>Open</span>
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div
+                          className={`p-2.5 rounded-xl flex items-center gap-3 ${
+                            isMe
+                              ? theme.bubbleCard
+                              : "bg-white/80 text-[#050505] border border-[#e4e6eb]"
+                          }`}
+                        >
+                          <div className="w-9 h-9 rounded-lg bg-[#0084ff]/10 text-[#0084ff] flex items-center justify-center shrink-0">
+                            <ImageIcon className="h-5 w-5" />
+                          </div>
+                          <div className="text-xs">
+                            <div className="font-medium">{msg.text || "Media Attachment"}</div>
+                            <div className={`text-[11px] ${isMe ? theme.subtle : "text-[#65676b]"}`}>
+                              Loading encrypted media...
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 )}
 
@@ -931,13 +1094,16 @@ export function ChatArea({
                   )
                 ) : (
                   <>
-                    {/* Message Text with interactive links */}
-                    <div className="break-words">
-                      {formatMessageWithLinks(msg.text, isMe)}
-                    </div>
+                    {/* Message Text with interactive links (hidden if message is a native standalone GIF) */}
+                    {msg.text && msg.text !== "GIF" && msg.text !== msg.mediaUrl && !isGifUrl(msg.text) && (
+                      <div className="break-words">
+                        {formatMessageWithLinks(msg.text, isMe)}
+                      </div>
+                    )}
 
-                    {/* Rich Link Metadata Previews */}
+                    {/* Rich Link Metadata Previews (skip if message is already rendered as GIF) */}
                     {(() => {
+                      if (msg.mediaType === "image" || isGifUrl(msg.text)) return null;
                       const urlsInText = extractUrls(msg.text);
                       if (urlsInText.length === 0) return null;
                       return (
@@ -1086,12 +1252,12 @@ export function ChatArea({
         </div>
       )}
 
-      {/* Hidden Real File Input for Image Upload (Images Only) */}
+      {/* Hidden Real File Input for Image Upload (Photos & Native GIFs) */}
       <input
         type="file"
         ref={imageInputRef}
         onChange={handleImageFileChange}
-        accept="image/jpeg,image/png,image/webp,image/gif"
+        accept="image/*,image/gif"
         className="hidden"
       />
 
@@ -1112,8 +1278,8 @@ export function ChatArea({
               <ImageIcon className="h-4 w-4" />
             </div>
             <div>
-              <span className="block font-medium">Photo</span>
-              <span className="block text-[10px] text-[#65676b]">Max 3MB</span>
+              <span className="block font-medium">Photo & GIF</span>
+              <span className="block text-[10px] text-[#65676b]">Up to 4MB</span>
             </div>
           </button>
         </div>
@@ -1198,11 +1364,14 @@ export function ChatArea({
             {/* Messenger Pill Input Container */}
             <div className="flex-1 flex items-center bg-[#f0f2f5] rounded-full px-3.5 py-1.5 focus-within:ring-2 focus-within:ring-[#0084ff]/20 transition-all">
               {/* Input Form Field */}
-              <form onSubmit={handleSend} className="flex-1 flex items-center mr-1">
+              <form onSubmit={handleSend} onPaste={handleInputPaste} className="flex-1 flex items-center mr-1">
                 <input
                   type="text"
                   value={inputText}
                   onChange={handleInputChange}
+                  onPaste={handleInputPaste}
+                  enterKeyHint="send"
+                  autoComplete="off"
                   onFocus={() => {
                     setTimeout(() => scrollToBottom(true), 150);
                   }}

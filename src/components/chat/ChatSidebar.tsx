@@ -264,6 +264,8 @@ export function ChatSidebar({
                           {lastMessage.text}
                         </span>
                       </>
+                    ) : isLoading ? (
+                      <div className="h-3.5 bg-[#f0f2f5] rounded-full w-24 animate-pulse mt-0.5" />
                     ) : (
                       <span className="text-[#0084ff] font-medium text-xs truncate">
                         Say hi to @{contact.id.replace(/@.*$/, "")} 👋

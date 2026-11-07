@@ -1,5 +1,5 @@
 import { getSupabaseClient, getSupabaseAdminClient, isSupabaseConfigured } from "./supabase";
-import { WireMessage } from "./server-store";
+import { WireMessage, FetchWireMessagesOptions } from "./server-store";
 import { getDbPool } from "./db";
 import {
   type SupabaseWireRow,
@@ -13,24 +13,74 @@ export {
 };
 
 /**
- * Fetch all active wire messages from Supabase
+ * Fetch active wire messages from Supabase with pagination & filtering support
  */
-export async function fetchSupabaseWireMessages(since: number = 0): Promise<WireMessage[] | null> {
+export async function fetchSupabaseWireMessages(
+  options?: number | FetchWireMessagesOptions
+): Promise<WireMessage[] | null> {
+  const since = typeof options === "number" ? options : options?.since || 0;
+  const before = typeof options === "object" ? options?.before || 0 : 0;
+  const limit = typeof options === "object" ? options?.limit || 0 : 0;
+  const userId = typeof options === "object" ? options?.userId?.split("@")[0].toLowerCase() : "";
+  const contactId = typeof options === "object" ? options?.contactId?.split("@")[0].toLowerCase() : "";
+
   const pool = getDbPool();
   if (pool) {
     try {
       const now = Date.now();
-      const res = await pool.query(
-        `SELECT id, sender_id, recipient_id, encrypted_payload, timestamp, status,
-                disappearing_duration, expires_at, view_once, is_burned, is_pinned,
-                security_type, media_type, media_url, reactions
-         FROM public.wire_messages
-         WHERE ($1::bigint = 0 OR timestamp > $1::bigint)
-           AND (expires_at IS NULL OR expires_at > $2::bigint)
-         ORDER BY timestamp ASC`,
-        [since, now]
-      );
-      return res.rows.map((row) => ({
+      const conditions: string[] = [];
+      const params: any[] = [];
+      let paramIdx = 1;
+
+      conditions.push(`(expires_at IS NULL OR expires_at > $${paramIdx}::bigint)`);
+      params.push(now);
+      paramIdx++;
+
+      if (since > 0) {
+        conditions.push(`timestamp > $${paramIdx}::bigint`);
+        params.push(since);
+        paramIdx++;
+      }
+
+      if (before > 0) {
+        conditions.push(`timestamp < $${paramIdx}::bigint`);
+        params.push(before);
+        paramIdx++;
+      }
+
+      if (userId) {
+        if (contactId) {
+          conditions.push(`(
+            (sender_id = $${paramIdx} AND recipient_id = $${paramIdx + 1}) OR
+            (sender_id = $${paramIdx + 1} AND recipient_id = $${paramIdx}) OR
+            recipient_id = $${paramIdx + 1}
+          )`);
+          params.push(userId, contactId);
+          paramIdx += 2;
+        } else {
+          conditions.push(`(sender_id = $${paramIdx} OR recipient_id = $${paramIdx} OR recipient_id LIKE 'public-%')`);
+          params.push(userId);
+          paramIdx++;
+        }
+      }
+
+      let sql = `SELECT id, sender_id, recipient_id, encrypted_payload, timestamp, status,
+                  disappearing_duration, expires_at, view_once, is_burned, is_pinned,
+                  security_type, media_type, media_url, reactions
+           FROM public.wire_messages`;
+      if (conditions.length > 0) {
+        sql += ` WHERE ` + conditions.join(" AND ");
+      }
+
+      if (limit > 0) {
+        sql += ` ORDER BY timestamp DESC LIMIT $${paramIdx}::int`;
+        params.push(limit);
+      } else {
+        sql += ` ORDER BY timestamp ASC`;
+      }
+
+      const res = await pool.query(sql, params);
+      const rows = res.rows.map((row) => ({
         id: row.id,
         senderId: row.sender_id,
         recipientId: row.recipient_id,
@@ -47,6 +97,12 @@ export async function fetchSupabaseWireMessages(since: number = 0): Promise<Wire
         mediaUrl: row.media_url,
         reactions: typeof row.reactions === "string" ? JSON.parse(row.reactions) : row.reactions || {},
       }));
+
+      if (limit > 0) {
+        rows.reverse();
+      }
+
+      return rows;
     } catch (e: any) {
       console.warn("[Pool] Fetch wire_messages fallback:", e.message);
     }
@@ -56,13 +112,19 @@ export async function fetchSupabaseWireMessages(since: number = 0): Promise<Wire
   if (!client) return null;
 
   try {
-    let query = client
-      .from("wire_messages")
-      .select("*")
-      .order("timestamp", { ascending: true });
+    let query = client.from("wire_messages").select("*");
 
     if (since > 0) {
       query = query.gt("timestamp", since);
+    }
+    if (before > 0) {
+      query = query.lt("timestamp", before);
+    }
+
+    if (limit > 0) {
+      query = query.order("timestamp", { ascending: false }).limit(limit);
+    } else {
+      query = query.order("timestamp", { ascending: true });
     }
 
     const { data, error } = await query;
@@ -74,15 +136,31 @@ export async function fetchSupabaseWireMessages(since: number = 0): Promise<Wire
     if (!data) return [];
 
     const now = Date.now();
-    const rows = (data as SupabaseWireRow[])
+    let rows = (data as SupabaseWireRow[])
       .map(fromSupabaseRow)
       .filter((m) => {
         // Filter out expired self-destructing messages
         if (m.expiresAt && m.expiresAt <= now) {
           return false;
         }
+        if (userId) {
+          const s = String(m.senderId || "").split("@")[0].toLowerCase();
+          const r = String(m.recipientId || "").split("@")[0].toLowerCase();
+          if (contactId) {
+            return (
+              (s === userId && r === contactId) ||
+              (s === contactId && r === userId) ||
+              (contactId.startsWith("public-") && r === contactId)
+            );
+          }
+          return s === userId || r === userId || r.startsWith("public-");
+        }
         return true;
       });
+
+    if (limit > 0) {
+      rows.reverse();
+    }
 
     return rows;
   } catch (err) {
