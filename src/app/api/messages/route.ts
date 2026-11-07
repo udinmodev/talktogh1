@@ -259,10 +259,16 @@ export async function POST(request: Request) {
                 [wire.recipientId]
               );
               if (authChk.rows.length === 0 && !wire.recipientId.startsWith("public-")) {
-                return NextResponse.json(
-                  { success: false, error: `Recipient @${wire.recipientId} does not exist.` },
-                  { status: 404 }
+                const wireMsgs = getActiveWireMessages();
+                const existsInStore = wireMsgs.some(
+                  (m) => m.senderId === wire.recipientId || m.recipientId === wire.recipientId
                 );
+                if (!existsInStore) {
+                  return NextResponse.json(
+                    { success: false, error: `Recipient @${wire.recipientId} does not exist.` },
+                    { status: 404 }
+                  );
+                }
               }
             }
           } catch (err) {
