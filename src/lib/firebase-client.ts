@@ -143,8 +143,11 @@ export async function registerTalkTogetherPush(userId: string): Promise<PushRegi
     return { status: "unsupported", reason: "invalid_user" };
   }
 
+  if (!window.isSecureContext) {
+    return { status: "unsupported", reason: "insecure_context" };
+  }
+
   if (
-    !window.isSecureContext ||
     !("serviceWorker" in navigator) ||
     !("Notification" in window) ||
     typeof navigator.serviceWorker?.register !== "function"

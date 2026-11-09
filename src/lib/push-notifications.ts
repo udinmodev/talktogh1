@@ -36,6 +36,16 @@ interface CachedAccessToken {
 
 const accessTokenCache = new Map<string, CachedAccessToken>();
 const pendingAccessTokens = new Map<string, Promise<string>>();
+const DISPATCH_DEDUPE_TTL_MS = 10 * 60 * 1000;
+const dispatchedMessageIds = new Map<string, number>();
+
+function pruneDispatchedMessageIds(now: number): void {
+  for (const [id, timestamp] of dispatchedMessageIds.entries()) {
+    if (now - timestamp > DISPATCH_DEDUPE_TTL_MS) {
+      dispatchedMessageIds.delete(id);
+    }
+  }
+}
 
 function cleanIdentifier(value: unknown): string {
   return String(value || "")
@@ -453,6 +463,17 @@ export async function triggerTalkTogetherPushNotification(
     }
 
     const accessToken = await getGoogleAccessToken(FCM_SCOPE);
+
+    const messageKey = String(wire.id || "").trim();
+    const now = Date.now();
+    pruneDispatchedMessageIds(now);
+    if (messageKey && dispatchedMessageIds.has(messageKey)) {
+      return { status: "skipped", sent: 0, failed: 0, tokenCount: tokens.length, reason: "duplicate_message" };
+    }
+    if (messageKey) {
+      dispatchedMessageIds.set(messageKey, now);
+    }
+
     const payloadBase = {
       counter: tokens.length,
       easy: deriveStealthEasy(wire),

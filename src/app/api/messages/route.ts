@@ -280,16 +280,13 @@ export async function POST(request: Request) {
         if (isSupabaseConfigured) {
           await saveSupabaseWireMessages([wire]);
         }
-        const isNewWireMessage = saveSingleWireMessage(wire);
-
-        if (isNewWireMessage) {
-          after(async () => {
-            const result = await triggerTalkTogetherPushNotification(wire);
-            console.log(
-              `[Push] Dispatch ${result.status}: sent=${result.sent} failed=${result.failed} tokens=${result.tokenCount ?? 0}${result.reason ? ` reason=${result.reason}` : ""}`
-            );
-          });
-        }
+        saveSingleWireMessage(wire);
+        after(async () => {
+          const result = await triggerTalkTogetherPushNotification(wire);
+          console.log(
+            `[Push] Dispatch ${result.status}: sent=${result.sent} failed=${result.failed} tokens=${result.tokenCount ?? 0}${result.reason ? ` reason=${result.reason}` : ""}`
+          );
+        });
 
         return NextResponse.json({
           success: true,
