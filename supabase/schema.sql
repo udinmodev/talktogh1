@@ -109,3 +109,23 @@ begin
     alter publication supabase_realtime add table public.wire_messages;
   end if;
 end $$;
+
+-- 8. Firebase Cloud Messaging device token registry
+-- Push tokens are routing metadata only. Message bodies remain end-to-end encrypted
+-- and are never stored or included in push payloads.
+create table if not exists public.push_tokens (
+  token text primary key,
+  user_id text not null,
+  platform text not null default 'web',
+  last_seen_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now(),
+  created_at timestamp with time zone default now()
+);
+
+create index if not exists idx_push_tokens_user_id on public.push_tokens(lower(user_id));
+create index if not exists idx_push_tokens_last_seen on public.push_tokens(last_seen_at desc);
+
+alter table public.push_tokens enable row level security;
+
+-- No anon/authenticated policies are intentionally created. The Next.js server
+-- accesses this table through the Postgres pool or Supabase service role only.

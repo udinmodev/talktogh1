@@ -63,6 +63,8 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   upload: { maxRequests: 30, windowMs: 60 * 1000 }, // 30 requests/min
   // Message operations (Anti-flooding)
   messages: { maxRequests: 90, windowMs: 60 * 1000 }, // 90 requests/min
+  // Push registration & diagnostics
+  push: { maxRequests: 30, windowMs: 60 * 1000 }, // 30 requests/min
   // Default API limit
   default: { maxRequests: 100, windowMs: 60 * 1000 }, // 100 requests/min
 };

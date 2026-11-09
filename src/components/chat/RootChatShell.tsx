@@ -18,6 +18,7 @@ import { ChatContext, ChatContextType } from "./ChatContext";
 import { useChatSettings } from "@/hooks/useChatSettings";
 import { useChatAuth } from "@/hooks/useChatAuth";
 import { useChatMessages } from "@/hooks/useChatMessages";
+import { registerTalkTogetherPush } from "@/lib/firebase-client";
 
 export default function RootChatShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -217,6 +218,16 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     setSelectedContactId,
     isAuthLoaded,
   });
+
+  useEffect(() => {
+    if (!isAuthLoaded || !authUser || isAppLocked || !authUser.isSecuritySetupComplete) return;
+
+    void registerTalkTogetherPush(cleanCurrentId).then((result) => {
+      if (result.status !== "registered") {
+        console.warn("[Push] Registration not completed:", result.reason || result.status);
+      }
+    });
+  }, [isAuthLoaded, authUser, isAppLocked, cleanCurrentId]);
 
   useEffect(() => {
     setContactsRef(contacts);

@@ -13,6 +13,7 @@ function getRateCategory(pathname: string): keyof typeof RATE_LIMITS {
   if (pathname.startsWith("/api/crypto")) return "crypto";
   if (pathname.startsWith("/api/upload")) return "upload";
   if (pathname.startsWith("/api/messages")) return "messages";
+  if (pathname.startsWith("/api/push")) return "push";
   return "default";
 }
 
@@ -21,6 +22,10 @@ export function proxy(request: NextRequest) {
 
   // Only protect /api/* endpoints
   if (!pathname.startsWith("/api")) {
+    return NextResponse.next();
+  }
+
+  if (pathname === "/api/push/firebase-config") {
     return NextResponse.next();
   }
 
