@@ -512,6 +512,7 @@ export function useChatMessages({
     setIsPeerTyping,
     loadLiveContacts,
     processIncomingWireBatch,
+    onRealtimeSubscribed: resyncAfterReconnect,
     realtimeChannelRef,
     peerTypingTimeoutRef,
   });
