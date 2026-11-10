@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { User, Message, SecuritySettings } from "@/types/chat";
 import { soundManager } from "@/lib/sound";
 import {
@@ -392,8 +392,21 @@ export function useChatRealtimeSync({
     return () => unsubscribe();
   }, [settings.disappearingTimer, cleanCurrentId, processIncomingWireBatch, currentUser.id, activeChatId, setMessages, setIsPeerTyping, peerTypingTimeoutRef]);
 
-  // 4. Mark incoming messages as read
+  const [isTabVisible, setIsTabVisible] = useState<boolean>(
+    () => typeof document === "undefined" || document.visibilityState === "visible"
+  );
+
   useEffect(() => {
+    const handleVisibility = () => {
+      setIsTabVisible(document.visibilityState === "visible");
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
+  // 4. Mark incoming messages as read (only while the chat is actually visible)
+  useEffect(() => {
+    if (!isTabVisible) return;
     if (!cleanCurrentId || cleanCurrentId === "user" || !activeChatId || activeChatId === "none") return;
 
     const unreadIncoming = messages.filter(
@@ -448,5 +461,5 @@ export function useChatRealtimeSync({
         senderId: activeChatId,
       }),
     }).catch((err) => console.warn("Cloud mark-read notice:", err));
-  }, [cleanCurrentId, activeChatId, messages, realtimeChannelRef, setMessages]);
+  }, [isTabVisible, cleanCurrentId, activeChatId, messages, realtimeChannelRef, setMessages]);
 }
