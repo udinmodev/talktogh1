@@ -264,6 +264,37 @@ async function persistWireMessage(wireMsg) {
   }
 }
 
+// Fire-and-forget push dispatch through the Next.js API so messages persisted
+// only via this relay still trigger FCM notifications. Deduped server-side by message id.
+function dispatchPushNotification(wireMsg) {
+  const secret = process.env.INTERNAL_API_SECRET || process.env.NEXT_PUBLIC_INTERNAL_API_SECRET;
+  if (!secret) return;
+
+  const baseUrl = (
+    process.env.NEXTJS_INTERNAL_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    "http://localhost:3000"
+  ).replace(/\/+$/, "");
+
+  fetch(`${baseUrl}/api/push/dispatch`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-wechat-internal-key": secret,
+    },
+    body: JSON.stringify({ message: wireMsg }),
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        console.warn(`[WS Server] Push dispatch HTTP ${res.status}: ${detail.slice(0, 200)}`);
+      }
+    })
+    .catch((err) => {
+      console.warn("[WS Server] Push dispatch notice:", err.message);
+    });
+}
+
 async function updateMessageField(messageId, updater, dbQuery, dbParams) {
   // Update disk
   ensureDataDir();
@@ -582,6 +613,7 @@ wss.on("connection", (ws, req) => {
           reactions: {},
         };
         await persistWireMessage(wireObj);
+        dispatchPushNotification(wireObj);
       }
 
       // 4. Pin message
