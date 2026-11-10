@@ -115,6 +115,8 @@ function attachForegroundHandler(messaging: FirebaseMessaging): void {
       const body = String(payload.data?.body || payload.notification?.body || "");
       const notification = new Notification(title, {
         body,
+        icon: "/favicon.png",
+        badge: "/favicon.png",
         data: payload.data || {},
       });
 

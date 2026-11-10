@@ -1,4 +1,4 @@
-const SW_VERSION = "2026-11-10-1";
+const SW_VERSION = "2026-11-10-2";
 const FIREBASE_VERSION = "13.1.0";
 
 importScripts(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app-compat.js`);
@@ -28,6 +28,8 @@ try {
 
     self.registration.showNotification(title, {
       body,
+      icon: "/favicon.png",
+      badge: "/favicon.png",
       data,
       requireInteraction: false,
     });
