@@ -470,6 +470,37 @@ export function useChatMessages({
     }
   }, [currentUser.id, isAuthLoaded, loadInitialMessages]);
 
+  const lastReconnectSyncRef = useRef(0);
+  const resyncAfterReconnect = useCallback(() => {
+    const now = Date.now();
+    if (now - lastReconnectSyncRef.current < 3000) return;
+    lastReconnectSyncRef.current = now;
+    if (currentUser.id && currentUser.id !== "user") {
+      void loadInitialMessages(currentUser.id);
+    }
+  }, [currentUser.id, loadInitialMessages]);
+
+  useEffect(() => {
+    if (!isAuthLoaded || !currentUser.id || currentUser.id === "user") return;
+
+    const handleOnline = () => resyncAfterReconnect();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") resyncAfterReconnect();
+    };
+    const unsubscribeSocket = secureSocket.onStatusChange((status) => {
+      if (status === "connected") resyncAfterReconnect();
+    });
+
+    window.addEventListener("online", handleOnline);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      unsubscribeSocket();
+    };
+  }, [isAuthLoaded, currentUser.id, resyncAfterReconnect]);
+
   // Hook: Connect Supabase Realtime, BroadcastChannel, and Expiration timers
   useChatRealtimeSync({
     currentUser,
