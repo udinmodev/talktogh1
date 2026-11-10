@@ -1,42 +1,43 @@
-const SW_VERSION = "2026-11-09-3";
+const SW_VERSION = "2026-11-09-4";
 const FIREBASE_VERSION = "13.1.0";
-const FIREBASE_CONFIG_URL = "/api/push/firebase-config";
 
 importScripts(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app-compat.js`);
 importScripts(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-messaging-compat.js`);
 
-async function initializeFirebaseMessaging() {
-  try {
-    const response = await fetch(FIREBASE_CONFIG_URL, { cache: "no-store" });
-    const result = await response.json();
+// Public Firebase Web App config (safe to expose; never contains service-account secrets).
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyA2sqmltAmVWJf6OdLqvMP1HKN3JK0Tjdc",
+  authDomain: "outlaw-redemption.firebaseapp.com",
+  projectId: "outlaw-redemption",
+  storageBucket: "outlaw-redemption.firebasestorage.app",
+  messagingSenderId: "109237196913",
+  appId: "1:109237196913:web:9312d82a9b4bb6902363d0",
+};
 
-    if (!result?.configured || !result.config) {
-      console.warn(`[Firebase SW ${SW_VERSION}] Public Firebase config is not configured.`);
-      return;
-    }
+// Firebase requires messaging handlers to be registered synchronously during
+// the initial evaluation of the worker script.
+try {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  const messaging = firebase.messaging();
 
-    firebase.initializeApp(result.config);
-    const messaging = firebase.messaging();
+  messaging.onBackgroundMessage((payload) => {
+    const notification = payload.notification || {};
+    const data = payload.data || {};
+    const title = notification.title || "System Sync";
+    const body = notification.body || "";
 
-    messaging.onBackgroundMessage((payload) => {
-      const notification = payload.notification || {};
-      const data = payload.data || {};
-      const title = notification.title || "System Sync";
-      const body = notification.body || "";
-
-      self.registration.showNotification(title, {
-        body,
-        data,
-        requireInteraction: false,
-      });
+    self.registration.showNotification(title, {
+      body,
+      data,
+      requireInteraction: false,
     });
-  } catch (error) {
-    console.error(`[Firebase SW ${SW_VERSION}] Initialization failed:`, error);
-  }
+  });
+} catch (error) {
+  console.error(`[Firebase SW ${SW_VERSION}] Initialization failed:`, error);
 }
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(initializeFirebaseMessaging().then(() => self.skipWaiting()));
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {

@@ -129,8 +129,10 @@ try {
   if (process.env.DATABASE_URL) {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
-      max: 10,
-      idleTimeoutMillis: 30000,
+      max: 4,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 5000,
+      maxLifetimeSeconds: 300,
     });
     console.log("[WS Server] Connected to Postgres pool for live wire persistence.");
   }
