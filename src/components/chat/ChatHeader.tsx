@@ -2,14 +2,13 @@
 
 import React from "react";
 import { User } from "@/types/chat";
-import { ArrowLeft, MoreVertical, Shield, Flame } from "lucide-react";
+import { ArrowLeft, MoreVertical, Shield } from "lucide-react";
 
 interface ChatHeaderProps {
   contactUser: User;
   isPeerTyping: boolean;
   onBackMobile: () => void;
   onOpenSecurityCenter: () => void;
-  onClearChat: () => void;
   showMoreMenu: boolean;
   setShowMoreMenu: (show: boolean | ((prev: boolean) => boolean)) => void;
   moreMenuRef: React.RefObject<HTMLDivElement | null>;
@@ -20,7 +19,6 @@ export function ChatHeader({
   isPeerTyping,
   onBackMobile,
   onOpenSecurityCenter,
-  onClearChat,
   showMoreMenu,
   setShowMoreMenu,
   moreMenuRef,
@@ -97,15 +95,6 @@ export function ChatHeader({
                 >
                   <Shield className="h-4 w-4 text-[#65676b]" />
                   Security Settings
-                </button>
-              </div>
-              <div className="p-1">
-                <button
-                  onClick={onClearChat}
-                  className="w-full text-left px-3 py-2 hover:bg-rose-50 rounded-xl text-rose-600 flex items-center gap-2.5 cursor-pointer transition-colors font-medium"
-                >
-                  <Flame className="h-4 w-4 text-rose-600" />
-                  Clear Chat History
                 </button>
               </div>
             </div>

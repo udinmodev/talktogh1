@@ -285,7 +285,6 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     editMessage: handleEditMessage,
     togglePinMessage: handleTogglePinMessage,
     addReaction: handleAddReaction,
-    clearChat: () => setMessages([]),
     sendTyping: handleTyping,
     openSafetyNumbers: () => setIsSafetyModalOpen(true),
     openSecurityCenter: () => {

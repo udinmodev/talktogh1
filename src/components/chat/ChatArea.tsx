@@ -8,7 +8,6 @@ import {
   Loader2,
   X,
   WifiOff,
-  Flame,
   ImageIcon,
   Download,
 } from "lucide-react";
@@ -38,7 +37,6 @@ interface ChatAreaProps {
   onOpenSecurityCenter: () => void;
   onBackMobile: () => void;
   onAddReaction: (messageId: string, emoji: string) => void;
-  onClearChat: () => void;
   onTyping: (isTyping: boolean) => void;
   isPeerTyping: boolean;
   isLoading?: boolean;
@@ -68,7 +66,6 @@ export function ChatArea({
   onOpenSecurityCenter,
   onBackMobile,
   onAddReaction,
-  onClearChat,
   onTyping,
   isPeerTyping,
   onBurnMessage,
@@ -594,7 +591,6 @@ export function ChatArea({
         isPeerTyping={isPeerTyping}
         onBackMobile={onBackMobile}
         onOpenSecurityCenter={onOpenSecurityCenter}
-        onClearChat={onClearChat}
         showMoreMenu={showMoreMenu}
         setShowMoreMenu={setShowMoreMenu}
         moreMenuRef={moreMenuRef}
