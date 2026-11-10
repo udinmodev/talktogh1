@@ -22,6 +22,7 @@ interface UseChatRealtimeSyncProps {
   setIsPeerTyping: React.Dispatch<React.SetStateAction<boolean>>;
   loadLiveContacts: (id: string) => void;
   processIncomingWireBatch: (wireList: any[], isPrepend?: boolean) => Promise<void>;
+  onRealtimeSubscribed?: () => void;
   realtimeChannelRef: React.MutableRefObject<any>;
   peerTypingTimeoutRef: React.MutableRefObject<NodeJS.Timeout | null>;
 }
@@ -36,9 +37,12 @@ export function useChatRealtimeSync({
   setIsPeerTyping,
   loadLiveContacts,
   processIncomingWireBatch,
+  onRealtimeSubscribed,
   realtimeChannelRef,
   peerTypingTimeoutRef,
 }: UseChatRealtimeSyncProps) {
+  const didInitialRealtimeSubscribeRef = useRef(false);
+
   // 1. Supabase Realtime Listener
   useEffect(() => {
     if (!currentUser.id || currentUser.id === "user") return;
@@ -229,13 +233,19 @@ export function useChatRealtimeSync({
           loadLiveContacts(currentUser.id);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        if (didInitialRealtimeSubscribeRef.current) {
+          onRealtimeSubscribed?.();
+        }
+        didInitialRealtimeSubscribeRef.current = true;
+      });
 
     return () => {
       realtimeChannelRef.current = null;
       client.removeChannel(channel);
     };
-  }, [currentUser.id, activeChatId, settings.soundEffects, settings.disappearingTimer, loadLiveContacts, realtimeChannelRef, peerTypingTimeoutRef, setMessages, setIsPeerTyping]);
+  }, [currentUser.id, activeChatId, settings.soundEffects, settings.disappearingTimer, loadLiveContacts, onRealtimeSubscribed, realtimeChannelRef, peerTypingTimeoutRef, setMessages, setIsPeerTyping]);
 
   // 2. Event-Driven Message Expiration
   const scheduledTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
