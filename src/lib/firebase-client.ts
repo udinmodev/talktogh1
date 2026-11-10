@@ -81,6 +81,10 @@ async function getFirebaseMessaging(config: FirebaseWebConfig): Promise<Firebase
   return getMessaging(app);
 }
 
+function isValidClientToken(value: string | null): value is string {
+  return Boolean(value && value.length > 20 && value.length <= 4096);
+}
+
 function detectPlatform(): string {
   const ua = navigator.userAgent || "";
   if (/android/i.test(ua)) return "android";
@@ -95,6 +99,17 @@ function attachForegroundHandler(messaging: FirebaseMessaging): void {
   void import("firebase/messaging").then(({ onMessage }) => {
     onMessage(messaging, (payload: FirebaseMessagePayload) => {
       if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+
+      // Dedupe across open tabs: only the first tab to receive the message shows it.
+      const messageId = String(payload.data?.messageId || payload.messageId || "");
+      if (messageId) {
+        try {
+          const key = `fcm_notif_${messageId}`;
+          if (localStorage.getItem(key)) return;
+          localStorage.setItem(key, "1");
+          window.setTimeout(() => localStorage.removeItem(key), 60000);
+        } catch {}
+      }
 
       const title = payload.notification?.title || "System Sync";
       const body = payload.notification?.body || "";
@@ -187,6 +202,21 @@ export async function registerTalkTogetherPush(userId: string): Promise<PushRegi
     if (!token) {
       return { status: "token_failed", reason: "empty_token" };
     }
+
+    // If Firebase rotated this browser's token, remove the stale one so the
+    // same device does not receive duplicate notifications.
+    const tokenStorageKey = `fcm_token_${cleanUserId}`;
+    try {
+      const previousToken = localStorage.getItem(tokenStorageKey);
+      if (previousToken && previousToken !== token && isValidClientToken(previousToken)) {
+        void fetch("/api/push/tokens", {
+          method: "DELETE",
+          headers: getInternalApiHeaders(),
+          body: JSON.stringify({ token: previousToken, userId: cleanUserId }),
+        }).catch(() => undefined);
+      }
+      localStorage.setItem(tokenStorageKey, token);
+    } catch {}
 
     const response = await fetch("/api/push/tokens", {
       method: "POST",
