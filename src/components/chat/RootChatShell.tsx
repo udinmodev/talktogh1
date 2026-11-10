@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams, usePathname } from "next/navigation";
 import { User } from "@/types/chat";
 import { chatSync } from "@/lib/broadcast";
@@ -219,15 +219,44 @@ export default function RootChatShell({ children }: { children: React.ReactNode 
     isAuthLoaded,
   });
 
-  useEffect(() => {
-    if (!isAuthLoaded || !authUser || isAppLocked || !authUser.isSecuritySetupComplete) return;
+  const pushRegisteredRef = useRef(false);
+  const canRegisterPush = Boolean(
+    isAuthLoaded && authUser && !isAppLocked && authUser.isSecuritySetupComplete && cleanCurrentId
+  );
 
+  const tryRegisterPush = useCallback(() => {
+    if (!canRegisterPush) return;
     void registerTalkTogetherPush(cleanCurrentId).then((result) => {
-      if (result.status !== "registered") {
+      if (result.status === "registered") {
+        pushRegisteredRef.current = true;
+      } else {
         console.warn("[Push] Registration not completed:", result.reason || result.status);
       }
     });
-  }, [isAuthLoaded, authUser, isAppLocked, cleanCurrentId]);
+  }, [canRegisterPush, cleanCurrentId]);
+
+  useEffect(() => {
+    pushRegisteredRef.current = false;
+    tryRegisterPush();
+  }, [tryRegisterPush]);
+
+  useEffect(() => {
+    if (!canRegisterPush) return;
+
+    const retryIfNeeded = () => {
+      if (!pushRegisteredRef.current) tryRegisterPush();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") retryIfNeeded();
+    };
+
+    window.addEventListener("online", retryIfNeeded);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("online", retryIfNeeded);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [canRegisterPush, tryRegisterPush]);
 
   useEffect(() => {
     setContactsRef(contacts);
