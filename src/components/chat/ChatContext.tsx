@@ -32,7 +32,6 @@ export interface ChatContextType {
   burnMessage: (messageId: string) => void;
   togglePinMessage: (messageId: string) => void;
   addReaction: (messageId: string, emoji: string) => void;
-  clearChat: () => void;
   sendTyping: (isTyping: boolean) => void;
   openSafetyNumbers: () => void;
   openSecurityCenter: () => void;

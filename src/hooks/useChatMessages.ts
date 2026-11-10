@@ -367,7 +367,7 @@ export function useChatMessages({
 
   // Load initial messages via secure REST endpoint and WebSocket sync
   const loadInitialMessages = useCallback(
-    async (myId: string) => {
+    async (myId: string, options?: { syncSocket?: boolean }) => {
       if (!myId || myId === "user") {
         setIsLoadingMessages(false);
         return;
@@ -381,8 +381,10 @@ export function useChatMessages({
       }, 2000);
 
       try {
-        secureSocket.registerUser(cleanId);
-        secureSocket.requestMessageSync(cleanId);
+        if (options?.syncSocket !== false) {
+          secureSocket.registerUser(cleanId);
+          secureSocket.requestMessageSync(cleanId);
+        }
 
         const res = await fetch(`/api/messages?userId=${encodeURIComponent(cleanId)}&limit=40`, {
           headers: getInternalApiHeaders(),
@@ -476,7 +478,7 @@ export function useChatMessages({
     if (now - lastReconnectSyncRef.current < 3000) return;
     lastReconnectSyncRef.current = now;
     if (currentUser.id && currentUser.id !== "user") {
-      void loadInitialMessages(currentUser.id);
+      void loadInitialMessages(currentUser.id, { syncSocket: false });
     }
   }, [currentUser.id, loadInitialMessages]);
 

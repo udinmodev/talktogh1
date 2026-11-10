@@ -33,7 +33,6 @@ export default function ChatPage() {
     editMessage,
     togglePinMessage,
     addReaction,
-    clearChat,
     sendTyping,
     openSafetyNumbers,
     openSecurityCenter,
@@ -104,7 +103,6 @@ export default function ChatPage() {
         onOpenSecurityCenter={openSecurityCenter}
         onBackMobile={backToHome}
         onAddReaction={addReaction}
-        onClearChat={clearChat}
         onTyping={sendTyping}
         isPeerTyping={isPeerTyping}
         onBurnMessage={burnMessage}
