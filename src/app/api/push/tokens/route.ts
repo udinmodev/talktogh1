@@ -82,25 +82,17 @@ export async function POST(request: Request) {
           [token, userId, platform]
         );
 
-        // Keep only the 10 most recently seen tokens per user (and drop
-        // anything unseen for 30 days) so stale registrations cannot stack
-        // up and cause duplicate notifications.
+        // Auto-clear stale registrations: keep only the latest token per
+        // user+platform (one notification per device/browser) and drop any
+        // token unseen for 30 days.
         await pool.query(
           `DELETE FROM public.push_tokens
            WHERE lower(user_id) = lower($1)
              AND (
                last_seen_at < NOW() - interval '30 days'
-               OR (
-                 token <> $2
-                 AND token NOT IN (
-                   SELECT token FROM public.push_tokens
-                   WHERE lower(user_id) = lower($1)
-                   ORDER BY last_seen_at DESC
-                   LIMIT 10
-                 )
-               )
+               OR (platform = $3 AND token <> $2)
              )`,
-          [userId, token]
+          [userId, token, platform]
         );
 
         persisted = true;
