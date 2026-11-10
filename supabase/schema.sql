@@ -129,3 +129,11 @@ alter table public.push_tokens enable row level security;
 
 -- No anon/authenticated policies are intentionally created. The Next.js server
 -- accesses this table through the Postgres pool or Supabase service role only.
+
+-- 9. Durable push dispatch dedupe log (one row per message id, claimed once)
+create table if not exists public.push_dispatch_log (
+  message_id text primary key,
+  sent_at timestamp with time zone not null default now()
+);
+
+alter table public.push_dispatch_log enable row level security;

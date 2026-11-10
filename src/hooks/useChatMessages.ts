@@ -132,6 +132,7 @@ export function useChatMessages({
 
   // In-memory decrypted message cache
   const decryptedCacheRef = useRef<Map<string, Message>>(new Map());
+  const lastSendRef = useRef<{ key: string; at: number } | null>(null);
   const [hasMoreMap, setHasMoreMap] = useState<Record<string, boolean>>({});
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
 
@@ -544,6 +545,18 @@ export function useChatMessages({
         console.warn("Blocked message sending: Cannot send messages to yourself.");
         return;
       }
+
+      // Guard against accidental double-submit (double-tap / Enter + click)
+      const sendKey = `${targetId}:${text}`;
+      const nowMs = Date.now();
+      if (
+        lastSendRef.current &&
+        lastSendRef.current.key === sendKey &&
+        nowMs - lastSendRef.current.at < 1500
+      ) {
+        return;
+      }
+      lastSendRef.current = { key: sendKey, at: nowMs };
 
       // Verification: recipient must be a real registered contact, not fake or non-existent
       let contactExists = contacts.some((c) => c.id === targetId);
