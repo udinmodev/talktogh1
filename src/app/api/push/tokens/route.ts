@@ -80,6 +80,28 @@ export async function POST(request: Request) {
              updated_at = NOW()`,
           [token, userId, platform]
         );
+
+        // Keep only the 10 most recently seen tokens per user (and drop
+        // anything unseen for 30 days) so stale registrations cannot stack
+        // up and cause duplicate notifications.
+        await pool.query(
+          `DELETE FROM public.push_tokens
+           WHERE lower(user_id) = lower($1)
+             AND (
+               last_seen_at < NOW() - interval '30 days'
+               OR (
+                 token <> $2
+                 AND token NOT IN (
+                   SELECT token FROM public.push_tokens
+                   WHERE lower(user_id) = lower($1)
+                   ORDER BY last_seen_at DESC
+                   LIMIT 10
+                 )
+               )
+             )`,
+          [userId, token]
+        );
+
         persisted = true;
         storage = "postgres";
       } catch (err) {
@@ -199,10 +221,6 @@ export async function GET(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (process.env.NODE_ENV === "production") {
-    return NextResponse.json({ success: false, error: "Not found." }, { status: 404 });
-  }
-
   try {
     const body = await request.json().catch(() => ({}));
     const token = String(body.token || "").trim();
@@ -210,6 +228,9 @@ export async function DELETE(request: Request) {
 
     if (!token && !userId) {
       return NextResponse.json({ success: false, error: "token or userId is required." }, { status: 400 });
+    }
+    if (process.env.NODE_ENV === "production" && !token) {
+      return NextResponse.json({ success: false, error: "Production deletes require a device token." }, { status: 403 });
     }
 
     let removed = false;
