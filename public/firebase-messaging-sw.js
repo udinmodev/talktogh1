@@ -1,4 +1,4 @@
-const SW_VERSION = "2026-11-09-2";
+const SW_VERSION = "2026-11-09-3";
 const FIREBASE_VERSION = "13.1.0";
 const FIREBASE_CONFIG_URL = "/api/push/firebase-config";
 
