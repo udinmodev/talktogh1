@@ -426,6 +426,8 @@ export function buildTalkTogetherPushPayload(options: TalkTogetherPushPayloadOpt
         senderId,
         recipientId,
         timestamp: String(options.timestamp || Date.now()),
+        title: "System Sync",
+        body,
       },
       android: {
         priority: "HIGH",
@@ -450,14 +452,12 @@ export function buildTalkTogetherPushPayload(options: TalkTogetherPushPayloadOpt
           },
         },
       },
+      // Data-only web push: the service worker's onBackgroundMessage renders
+      // the notification. Including webpush.notification here would let FCM
+      // display it automatically AND our handler display it again (duplicates).
       webpush: {
         headers: {
           TTL: "3600",
-        },
-        notification: {
-          title: "System Sync",
-          body,
-          requireInteraction: false,
         },
       },
     },
