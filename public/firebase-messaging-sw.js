@@ -1,4 +1,4 @@
-const SW_VERSION = "2026-11-09-4";
+const SW_VERSION = "2026-11-10-1";
 const FIREBASE_VERSION = "13.1.0";
 
 importScripts(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app-compat.js`);
@@ -23,8 +23,8 @@ try {
   messaging.onBackgroundMessage((payload) => {
     const notification = payload.notification || {};
     const data = payload.data || {};
-    const title = notification.title || "System Sync";
-    const body = notification.body || "";
+    const title = data.title || notification.title || "System Sync";
+    const body = data.body || notification.body || "";
 
     self.registration.showNotification(title, {
       body,
