@@ -113,10 +113,12 @@ function attachForegroundHandler(messaging: FirebaseMessaging): void {
 
       const title = String(payload.data?.title || payload.notification?.title || "System Sync");
       const body = String(payload.data?.body || payload.notification?.body || "");
+      const tag = messageId ? `notif_${messageId}` : "talk_together_sync";
       const notification = new Notification(title, {
         body,
         icon: "/favicon.png",
         badge: "/favicon.png",
+        tag,
         data: payload.data || {},
       });
 

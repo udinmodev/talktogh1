@@ -78,6 +78,9 @@ async function claimPushDispatch(messageKey: string): Promise<boolean> {
   pruneDispatchedMessageIds(now);
   if (dispatchedMessageIds.has(messageKey)) return false;
 
+  // Immediately record in memory to block any synchronous or near-instant races
+  dispatchedMessageIds.set(messageKey, now);
+
   const pool = getDbPool();
   if (pool) {
     try {
@@ -88,7 +91,9 @@ async function claimPushDispatch(messageKey: string): Promise<boolean> {
          RETURNING message_id`,
         [messageKey]
       );
-      if (res.rows.length === 0) return false;
+      if (res.rows.length === 0) {
+        return false;
+      }
 
       // Occasional cleanup of stale claim rows (1% of dispatches)
       if (Math.random() < 0.01) {
@@ -101,7 +106,6 @@ async function claimPushDispatch(messageKey: string): Promise<boolean> {
     }
   }
 
-  dispatchedMessageIds.set(messageKey, now);
   return true;
 }
 
@@ -414,10 +418,10 @@ export function buildTalkTogetherPushPayload(options: TalkTogetherPushPayloadOpt
   return {
     message: {
       token: options.token,
-      notification: {
-        title: "System Sync",
-        body,
-      },
+      // Data-only payload: Never include top-level message.notification!
+      // In FCM v1, top-level notification causes browsers to automatically show
+      // an uncustomized notification AND invoke onBackgroundMessage (which calls
+      // showNotification), causing dual/double notifications on Web & Android PWA.
       data: {
         type: "message_sync",
         event: "new_message",
@@ -432,10 +436,6 @@ export function buildTalkTogetherPushPayload(options: TalkTogetherPushPayloadOpt
       android: {
         priority: "HIGH",
         ttl: "3600s",
-        notification: {
-          channel_id: "background_sync",
-          visibility: "PRIVATE",
-        },
       },
       apns: {
         headers: {
@@ -452,12 +452,10 @@ export function buildTalkTogetherPushPayload(options: TalkTogetherPushPayloadOpt
           },
         },
       },
-      // Data-only web push: the service worker's onBackgroundMessage renders
-      // the notification. Including webpush.notification here would let FCM
-      // display it automatically AND our handler display it again (duplicates).
       webpush: {
         headers: {
           TTL: "3600",
+          Urgency: "high",
         },
       },
     },
