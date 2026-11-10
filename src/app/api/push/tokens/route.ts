@@ -66,6 +66,7 @@ export async function POST(request: Request) {
 
     let persisted = false;
     let storage = "unconfigured";
+    let lastStorageError = "";
     const pool = getDbPool();
 
     if (pool) {
@@ -105,7 +106,8 @@ export async function POST(request: Request) {
         persisted = true;
         storage = "postgres";
       } catch (err) {
-        console.warn("[Push Tokens] Postgres registration notice:", err instanceof Error ? err.message : err);
+        lastStorageError = err instanceof Error ? err.message : String(err);
+        console.warn("[Push Tokens] Postgres registration notice:", lastStorageError);
       }
     }
 
@@ -123,16 +125,23 @@ export async function POST(request: Request) {
           if (!error) {
             persisted = true;
             storage = "supabase";
+          } else {
+            lastStorageError = error.message;
           }
         }
       } catch (err) {
-        console.warn("[Push Tokens] Supabase registration notice:", err instanceof Error ? err.message : err);
+        lastStorageError = err instanceof Error ? err.message : String(err);
+        console.warn("[Push Tokens] Supabase registration notice:", lastStorageError);
       }
     }
 
     if (!persisted) {
       return NextResponse.json(
-        { success: false, error: "Push token storage is unavailable. Apply the push_tokens schema first." },
+        {
+          success: false,
+          error: "Push token storage is unavailable. Apply the push_tokens schema first.",
+          detail: lastStorageError.slice(0, 300),
+        },
         { status: 503 }
       );
     }
