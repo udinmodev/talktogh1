@@ -109,7 +109,12 @@ export async function GET(request: Request) {
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Internal error";
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    console.error("[Settings] GET failed, returning defaults:", msg);
+    return NextResponse.json({
+      success: true,
+      storage: "default",
+      settings: DEFAULT_SETTINGS,
+    });
   }
 }
 
