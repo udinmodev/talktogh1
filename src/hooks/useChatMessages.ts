@@ -942,7 +942,13 @@ export function useChatMessages({
     }
   }, [messages, sessionKey, cleanCurrentId]);
 
+  const seenMessageIds = new Set<string>();
   const activeMessages = messages.filter((m) => {
+    // Bulletproof dedupe: never render the same message id twice, regardless
+    // of which transport path delivered it.
+    if (seenMessageIds.has(m.id)) return false;
+    seenMessageIds.add(m.id);
+
     const s = String(m.senderId || "").split("@")[0].toLowerCase();
     const r = String(m.recipientId || "").split("@")[0].toLowerCase();
     const target = activeChatId;
