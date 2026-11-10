@@ -47,6 +47,64 @@ function pruneDispatchedMessageIds(now: number): void {
   }
 }
 
+const PUSH_DISPATCH_TABLE = "public.push_dispatch_log";
+let pushDispatchTableReady: Promise<void> | null = null;
+
+function ensurePushDispatchTable(pool: NonNullable<ReturnType<typeof getDbPool>>): Promise<void> {
+  if (!pushDispatchTableReady) {
+    pushDispatchTableReady = pool
+      .query(
+        `CREATE TABLE IF NOT EXISTS ${PUSH_DISPATCH_TABLE} (
+           message_id text PRIMARY KEY,
+           sent_at timestamptz NOT NULL DEFAULT now()
+         )`
+      )
+      .then(() => undefined)
+      .catch((err) => {
+        pushDispatchTableReady = null;
+        throw err;
+      });
+  }
+  return pushDispatchTableReady;
+}
+
+/**
+ * Durable cross-instance dedupe: claims the right to dispatch a push for a
+ * message id exactly once. Falls back to the in-memory map if the DB is
+ * unavailable so single-instance deployments still dedupe.
+ */
+async function claimPushDispatch(messageKey: string): Promise<boolean> {
+  const now = Date.now();
+  pruneDispatchedMessageIds(now);
+  if (dispatchedMessageIds.has(messageKey)) return false;
+
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      await ensurePushDispatchTable(pool);
+      const res = await pool.query(
+        `INSERT INTO ${PUSH_DISPATCH_TABLE} (message_id) VALUES ($1)
+         ON CONFLICT (message_id) DO NOTHING
+         RETURNING message_id`,
+        [messageKey]
+      );
+      if (res.rows.length === 0) return false;
+
+      // Occasional cleanup of stale claim rows (1% of dispatches)
+      if (Math.random() < 0.01) {
+        pool
+          .query(`DELETE FROM ${PUSH_DISPATCH_TABLE} WHERE sent_at < now() - interval '7 days'`)
+          .catch(() => undefined);
+      }
+    } catch (err) {
+      console.warn("[Push] Dispatch dedupe notice:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  dispatchedMessageIds.set(messageKey, now);
+  return true;
+}
+
 function cleanIdentifier(value: unknown): string {
   return String(value || "")
     .split("@")[0]
@@ -465,13 +523,8 @@ export async function triggerTalkTogetherPushNotification(
     const accessToken = await getGoogleAccessToken(FCM_SCOPE);
 
     const messageKey = String(wire.id || "").trim();
-    const now = Date.now();
-    pruneDispatchedMessageIds(now);
-    if (messageKey && dispatchedMessageIds.has(messageKey)) {
+    if (messageKey && !(await claimPushDispatch(messageKey))) {
       return { status: "skipped", sent: 0, failed: 0, tokenCount: tokens.length, reason: "duplicate_message" };
-    }
-    if (messageKey) {
-      dispatchedMessageIds.set(messageKey, now);
     }
 
     const payloadBase = {
